@@ -1,0 +1,63 @@
+/* Friendzy — global web styles (imported once from the root layout). */
+:root {
+  color-scheme: light dark;
+  --fz-purple: #7000ff;
+  --fz-pink: #ff28b9;
+  --fz-blue: #276bff;
+  --fz-night: #090817;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: var(--fz-night);
+  }
+}
+
+input,
+textarea,
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: rgba(112, 0, 255, 0.25);
+}
+
+/* Thin, subtle scrollbars on desktop */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(112, 0, 255, 0.25);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

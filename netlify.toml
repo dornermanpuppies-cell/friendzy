@@ -1,0 +1,39 @@
+# Netlify configuration for the Friendzy website (Expo Router static export).
+#
+# Environment variables (Site configuration → Environment variables) — public values only:
+#   EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY, EXPO_PUBLIC_LIVEKIT_URL,
+#   optional EXPO_PUBLIC_TENOR_API_KEY, EXPO_PUBLIC_WEB_HOST.
+#   EXPO_PUBLIC_SITE_URL: leave unset to use the deploy's own URL (previews get their preview
+#   URL, production gets the primary site URL); set it explicitly for a custom domain.
+# Never add server secrets here — they belong in Supabase Edge Function secrets.
+
+[build]
+  # Export the static site, then generate the rewrites for dynamic routes + 404.html.
+  command = 'EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$DEPLOY_PRIME_URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NODE_OPTIONS = "--max-old-space-size=4096"
+  EXPO_NO_TELEMETRY = "1"
+
+[context.production]
+  command = 'EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), microphone=(self), geolocation=(self)"
+
+# Long-lived caching for hashed bundle assets
+[[headers]]
+  for = "/_expo/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Dynamic routes: dist/_redirects (generated at build time) rewrites e.g. /u/alice to the
+# route shell; unknown paths get 404.html (copied from Expo's +not-found route).

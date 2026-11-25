@@ -1,0 +1,76 @@
+# Deploys database migrations and Edge Functions to the Supabase project.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_ACCESS_TOKEN  personal access token (supabase.com → Account → Access Tokens)
+#   SUPABASE_PROJECT_ID    project ref, e.g. gwdpsrjmfrgcloacvdlg
+#   SUPABASE_DB_PASSWORD   database password (Project Settings → Database)
+#
+# One-time, before the first run: the eleven launch migrations were applied by hand through
+# the SQL editor, so tell the CLI they are already in place (otherwise `db push` replays them):
+#   supabase link --project-ref gwdpsrjmfrgcloacvdlg
+#   supabase migration repair --status applied 20261125000001 20261125000002 20261125000003 \
+#     20261125000004 20261125000005 20261125000006 20261125000007 20261125000008 20261125000009 \
+#     20261125000010 20261125000011 20261125000012
+# Edge Function secrets are not managed here; set them once with
+#   supabase secrets set --env-file supabase/.env.local
+#
+# Until the secrets exist the workflow skips itself instead of failing.
+name: Supabase deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/functions/**'
+      - 'supabase/config.toml'
+
+concurrency:
+  group: supabase-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check configuration
+        id: cfg
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_PROJECT_ID" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::notice::Supabase deploy skipped — add SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_ID and SUPABASE_DB_PASSWORD as repository secrets."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: supabase/setup-cli@v1
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          version: latest
+
+      - name: Link project
+        if: steps.cfg.outputs.configured == 'true'
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Pending migrations (dry run)
+        if: steps.cfg.outputs.configured == 'true'
+        run: supabase db push --dry-run
+
+      - name: Apply migrations
+        if: steps.cfg.outputs.configured == 'true'
+        run: supabase db push
+
+      - name: Deploy Edge Functions (user-JWT protected)
+        if: steps.cfg.outputs.configured == 'true'
+        run: supabase functions deploy livekit-token game-engine admin-actions
+
+      - name: Deploy Edge Functions called by external services (own auth)
+        if: steps.cfg.outputs.configured == 'true'
+        run: supabase functions deploy send-email revenuecat-webhook push-dispatch livekit-webhook --no-verify-jwt

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  checks:
+    name: Typecheck · lint · unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test -- --ci
+
+  database:
+    name: Migrations + SQL test-suite (embedded PostgreSQL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run db:test
+      - name: Combined SQL file is up to date
+        run: |
+          npm run db:combine >/dev/null
+          git diff --exit-code -- supabase/FRIENDZY_ALL_MIGRATIONS.sql || { echo "::error::Run 'npm run db:combine' and commit supabase/FRIENDZY_ALL_MIGRATIONS.sql"; exit 1; }
+
+  web:
+    name: Static web export (what Netlify builds)
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx expo export --platform web
+      - run: node scripts/netlify-redirects.mjs
+      - name: Redirect rules in the repo match the export
+        run: |
+          diff <(grep -v '^#' public/_redirects) <(grep -v '^#' dist/_redirects) || { echo "::error::Run 'node scripts/netlify-redirects.mjs --write-public' and commit public/_redirects"; exit 1; }

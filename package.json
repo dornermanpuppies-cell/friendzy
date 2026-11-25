@@ -25,7 +25,8 @@
     "functions:deploy:livekit-webhook": "supabase functions deploy livekit-webhook --no-verify-jwt",
     "livekit:webhook:status": "node scripts/livekit-webhook.mjs status",
     "livekit:webhook:register": "node scripts/livekit-webhook.mjs register",
-    "livekit:webhook:test": "node scripts/livekit-webhook.mjs test"
+    "livekit:webhook:test": "node scripts/livekit-webhook.mjs test",
+    "site:check": "node scripts/site-check.mjs"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^15.0.2",

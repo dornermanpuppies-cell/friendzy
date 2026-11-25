@@ -141,7 +141,10 @@ Workflows (`.github/workflows`):
    | `EXPO_PUBLIC_WEB_HOST`, `EXPO_PUBLIC_TENOR_API_KEY` | optional (app links host, GIF search) |
 3. **Deploy site.** The build exports the static site and generates the rewrites for dynamic routes (`scripts/netlify-redirects.mjs`)
    and `404.html`. First build takes a few minutes.
-4. Put the Netlify URL into Supabase Auth (§6) — sign-up confirmation links will not work until the redirect URLs are allowed.
+4. Verify the deploy from the outside: `npm run site:check -- https://<site>.netlify.app` checks the build identity, security headers,
+   baked-in public config, dynamic-route rewrites, the 404 page and the auth deep-link pages, and prints the exact Supabase Auth
+   URL configuration for that origin.
+5. Put the Netlify URL into Supabase Auth (§6) — sign-up confirmation links will not work until the redirect URLs are allowed.
 5. Sign up on the site, then create your admin (§4). Deploy previews work automatically for pull requests.
 6. Custom domain later: Netlify → Domain management; then set `EXPO_PUBLIC_SITE_URL` (Production) and `EXPO_PUBLIC_WEB_HOST`
    (apex host without protocol, for universal links), update Supabase Site URL / redirect URLs, and redeploy.

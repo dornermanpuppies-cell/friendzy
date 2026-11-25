@@ -139,8 +139,13 @@ Workflows (`.github/workflows`):
    | `EXPO_PUBLIC_LIVEKIT_URL` | `wss://friendzy-9kc7beej.livekit.cloud` |
    | `EXPO_PUBLIC_SITE_URL` | leave unset — the build uses the deploy's own URL; set it (Production scope only) once you have a custom domain |
    | `EXPO_PUBLIC_WEB_HOST`, `EXPO_PUBLIC_TENOR_API_KEY` | optional (app links host, GIF search) |
-3. **Deploy site.** The build exports the static site and generates the rewrites for dynamic routes (`scripts/netlify-redirects.mjs`)
-   and `404.html`. First build takes a few minutes.
+   Scope: all deploy contexts, Builds. Do **not** tick "contains secret values" — these are public by design, and Netlify's
+   secrets scanning would fail the build when it finds them in the published bundle.
+3. **Deploy site.** The build runs a preflight (`scripts/prepare-web-build.mjs --strict`) that fails loudly — naming the variable —
+   when one of the three values is missing, misspelled, rejected by Supabase or is a secret key, and clears Metro's cache so changed
+   values are always inlined. Then it exports the static site and generates the rewrites for dynamic routes
+   (`scripts/netlify-redirects.mjs`) and `404.html`. First build takes a few minutes. Variables are read only while building:
+   after adding or changing one, trigger a new deploy.
 4. Verify the deploy from the outside: `npm run site:check -- https://<site>.netlify.app` checks the build identity, security headers,
    baked-in public config, dynamic-route rewrites, the 404 page and the auth deep-link pages, and prints the exact Supabase Auth
    URL configuration for that origin.

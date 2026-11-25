@@ -1,15 +1,20 @@
 # Netlify configuration for the Friendzy website (Expo Router static export).
 #
-# Environment variables (Site configuration → Environment variables) — public values only:
+# Environment variables (Project configuration → Environment variables) — public values only,
+# scope "All deploy contexts" / "Builds", and do NOT mark them as secret (they are public by
+# design and Netlify's secrets scanning would otherwise fail the build when it finds them in
+# the published bundle):
 #   EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY, EXPO_PUBLIC_LIVEKIT_URL,
 #   optional EXPO_PUBLIC_TENOR_API_KEY, EXPO_PUBLIC_WEB_HOST.
 #   EXPO_PUBLIC_SITE_URL: leave unset to use the deploy's own URL (previews get their preview
 #   URL, production gets the primary site URL); set it explicitly for a custom domain.
 # Never add server secrets here — they belong in Supabase Edge Function secrets.
+#
+# Build steps: 1) preflight (fails loudly if a public variable is missing or wrong, clears the
+# Metro cache so new values are inlined), 2) static export, 3) rewrites for dynamic routes + 404.
 
 [build]
-  # Export the static site, then generate the rewrites for dynamic routes + 404.html.
-  command = 'EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$DEPLOY_PRIME_URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
+  command = 'node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$DEPLOY_PRIME_URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
   publish = "dist"
 
 [build.environment]
@@ -18,7 +23,7 @@
   EXPO_NO_TELEMETRY = "1"
 
 [context.production]
-  command = 'EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
+  command = 'node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
 
 # Security headers
 [[headers]]

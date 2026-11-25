@@ -55,6 +55,7 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - run: node scripts/prepare-web-build.mjs   # report-only here (no public config in CI); strict on Netlify
       - run: npx expo export --platform web
       - run: node scripts/netlify-redirects.mjs
       - name: Redirect rules in the repo match the export

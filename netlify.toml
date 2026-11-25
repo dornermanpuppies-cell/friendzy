@@ -21,6 +21,12 @@
   NODE_VERSION = "22"
   NODE_OPTIONS = "--max-old-space-size=4096"
   EXPO_NO_TELEMETRY = "1"
+  # Netlify's secrets scanning fails a deploy when a variable marked "secret" shows up in the
+  # published files. The EXPO_PUBLIC_* values are inlined into the browser bundle by design
+  # (Supabase anon key + URL are protected by Row Level Security; the LiveKit URL is public), so
+  # they are excluded from the scan. Every other variable is still scanned — a service-role key
+  # or any real secret that leaks into the bundle still fails the build.
+  SECRETS_SCAN_OMIT_KEYS = "EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,EXPO_PUBLIC_LIVEKIT_URL,EXPO_PUBLIC_SITE_URL,EXPO_PUBLIC_WEB_HOST,EXPO_PUBLIC_TENOR_API_KEY,SECRETS_SCAN_OMIT_KEYS"
 
 [context.production]
   command = 'node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'

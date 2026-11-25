@@ -139,8 +139,12 @@ Workflows (`.github/workflows`):
    | `EXPO_PUBLIC_LIVEKIT_URL` | `wss://friendzy-9kc7beej.livekit.cloud` |
    | `EXPO_PUBLIC_SITE_URL` | leave unset — the build uses the deploy's own URL; set it (Production scope only) once you have a custom domain |
    | `EXPO_PUBLIC_WEB_HOST`, `EXPO_PUBLIC_TENOR_API_KEY` | optional (app links host, GIF search) |
-   Scope: all deploy contexts, Builds. Do **not** tick "contains secret values" — these are public by design, and Netlify's
-   secrets scanning would fail the build when it finds them in the published bundle.
+   Scope: all deploy contexts, Builds. Do **not** tick "contains secret values" — these are public by design. If one of them is
+   marked secret, Netlify's secrets scanning fails the deploy with "Secrets scanning found secrets in build" because the value is
+   (correctly) in the published bundle. `netlify.toml` therefore lists the `EXPO_PUBLIC_*` names in `SECRETS_SCAN_OMIT_KEYS`; until
+   that file is deployed, adding the same variable in the Netlify UI has the same effect:
+   `SECRETS_SCAN_OMIT_KEYS = EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,EXPO_PUBLIC_LIVEKIT_URL`.
+   Everything else stays scanned, so a leaked service-role key would still stop a deploy.
 3. **Deploy site.** The build runs a preflight (`scripts/prepare-web-build.mjs --strict`) that fails loudly — naming the variable —
    when one of the three values is missing, misspelled, rejected by Supabase or is a secret key, and clears Metro's cache so changed
    values are always inlined. Then it exports the static site and generates the rewrites for dynamic routes

@@ -25,6 +25,14 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const strict = process.argv.includes('--strict') || process.env.NETLIFY === 'true';
 const onNetlify = process.env.NETLIFY === 'true';
+const onGitHub = process.env.GITHUB_ACTIONS === 'true';
+const targetArg = process.argv.indexOf('--target');
+const target = targetArg > -1 ? process.argv[targetArg + 1] : 'web';
+const whereToSet = onNetlify
+  ? ' — add it under Project configuration → Environment variables (scope: all deploy contexts, Builds) and redeploy'
+  : onGitHub
+    ? ' — add it under Settings → Secrets and variables → Actions → Variables (repository variable) and re-run the workflow'
+    : '';
 
 // --- .env files, Expo CLI order (later files never override earlier ones or process.env)
 const nodeEnv = process.env.NODE_ENV || 'production';
@@ -55,7 +63,7 @@ for (const { name, core } of REQUIRED) {
   const value = (process.env[name] ?? '').trim();
   if (value) continue;
   const lookalikes = allKeys.filter((k) => k !== name && (norm(k) === norm(name) || core.some((c) => norm(k).includes(c)))).filter((k) => !/SECRET|SERVICE_ROLE|PASSWORD/i.test(k));
-  const hint = lookalikes.length ? ` — found ${lookalikes.map((k) => `"${k}"`).join(', ')}: the name must be exactly ${name}` : onNetlify ? ' — add it under Project configuration → Environment variables (scope: all deploy contexts, Builds) and redeploy' : '';
+  const hint = lookalikes.length ? ` — found ${lookalikes.map((k) => `"${k}"`).join(', ')}: the name must be exactly ${name}` : whereToSet;
   problems.push(`${name} is missing or empty${hint}`);
 }
 
@@ -122,6 +130,10 @@ if (siteUrl) {
   else if (onNetlify && siteUrl.startsWith('http://')) warnings.push(`EXPO_PUBLIC_SITE_URL is http:// (${siteUrl}) — production links should be https://`);
 }
 
+// --- GitHub repository used by the Download page to find the latest Android APK release
+const githubRepo = (process.env.EXPO_PUBLIC_GITHUB_REPO ?? '').trim();
+if (githubRepo && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(githubRepo)) problems.push(`EXPO_PUBLIC_GITHUB_REPO must be "owner/repository" (got "${githubRepo}")`);
+
 // --- Metro cache: stale transforms would keep old inlined values
 const metroCache = path.join(root, 'node_modules', '.cache', 'metro');
 if (fs.existsSync(metroCache)) {
@@ -130,17 +142,18 @@ if (fs.existsSync(metroCache)) {
 }
 
 // --- report
-console.log(`Web build preflight${strict ? ' (strict)' : ''}${onNetlify ? ` · Netlify ${process.env.CONTEXT ?? ''} · ${process.env.DEPLOY_PRIME_URL ?? process.env.URL ?? ''}` : ''}`);
+console.log(`${target === 'android' ? 'Android' : 'Web'} build preflight${strict ? ' (strict)' : ''}${onNetlify ? ` · Netlify ${process.env.CONTEXT ?? ''} · ${process.env.DEPLOY_PRIME_URL ?? process.env.URL ?? ''}` : onGitHub ? ` · GitHub Actions · ${process.env.GITHUB_REPOSITORY ?? ''}` : ''}`);
 console.log(`  EXPO_PUBLIC_SUPABASE_URL       ${supabaseUrl || '(empty)'}`);
 console.log(`  EXPO_PUBLIC_SUPABASE_ANON_KEY  ${mask(anonKey)}`);
 console.log(`  EXPO_PUBLIC_LIVEKIT_URL        ${liveKitUrl || '(empty)'}`);
 console.log(`  EXPO_PUBLIC_SITE_URL           ${siteUrl || '(unset → Expo default / Netlify deploy URL)'}`);
+console.log(`  EXPO_PUBLIC_GITHUB_REPO        ${githubRepo || '(unset → Download page cannot look up Android releases)'}`);
 for (const line of info) console.log(`  • ${line}`);
 for (const line of warnings) console.log(`  ! ${line}`);
 for (const line of problems) console.log(`  ✖ ${line}`);
 
 if (problems.length > 0 && strict) {
-  console.error(`\n✖ Web build aborted: ${problems.length} configuration problem(s). Fix the variable(s) above${onNetlify ? ' in Netlify → Project configuration → Environment variables, then "Trigger deploy"' : ''}.`);
+  console.error(`\n✖ ${target === 'android' ? 'Android' : 'Web'} build aborted: ${problems.length} configuration problem(s). Fix the variable(s) above${onNetlify ? ' in Netlify → Project configuration → Environment variables, then "Trigger deploy"' : onGitHub ? ' in GitHub → Settings → Secrets and variables → Actions, then re-run the workflow' : ''}.`);
   process.exit(1);
 }
 if (problems.length > 0) console.log(`\n! ${problems.length} problem(s) — the export continues because this is not a strict run; the site would show the configuration screen.`);

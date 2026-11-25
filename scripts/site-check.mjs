@@ -193,6 +193,37 @@ if (scripts.length > 0) {
   else warn('Hashed bundles cached immutably', `cache-control: "${cc || 'none'}"`);
 }
 
+// 7. Android download (GitHub release read by the Download page) ---------------
+{
+  let repo = (process.env.EXPO_PUBLIC_GITHUB_REPO || fileEnv.EXPO_PUBLIC_GITHUB_REPO || '').trim();
+  if (!repo) {
+    try {
+      const { execSync } = await import('node:child_process');
+      const remote = execSync('git remote get-url origin', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      const m = /github\.com[:/]([^/]+\/[^/.]+)/.exec(remote);
+      if (m) repo = m[1];
+    } catch {
+      /* no git remote */
+    }
+  }
+  if (!repo) warn('Android download', 'no GitHub repository known (EXPO_PUBLIC_GITHUB_REPO) — skipped');
+  else {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'friendzy-site-check' }, signal: AbortSignal.timeout(12_000) });
+      if (res.status === 200) {
+        const rel = await res.json();
+        const apk = (rel.assets ?? []).find((a) => /arm64.*\.apk$/i.test(a.name)) ?? (rel.assets ?? []).find((a) => /\.apk$/i.test(a.name));
+        if (apk) pass('Android download', `${rel.tag_name} · ${apk.name} · ${(apk.size / 1048576).toFixed(0)} MB · ${apk.browser_download_url}`);
+        else warn('Android download', `latest release ${rel.tag_name} has no .apk asset — run the "Android APK" workflow`);
+      } else if (res.status === 404) {
+        warn('Android download', `GitHub answers 404 for ${repo}: the repository is private or has no release yet. Visitors can only download from a public repository (or set EXPO_PUBLIC_ANDROID_APK_URL).`);
+      } else warn('Android download', `GitHub API HTTP ${res.status}`);
+    } catch (error) {
+      warn('Android download', `GitHub API unreachable (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+}
+
 // Report ---------------------------------------------------------------------
 console.log('');
 for (const r of results) console.log(`${r.ok === true ? '✔' : r.ok === false ? '✖' : '•'} ${r.name}${r.detail ? ` — ${r.detail}` : ''}`);

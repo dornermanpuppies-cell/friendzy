@@ -38,6 +38,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'com.friendzy.app',
+    // Monotonic build number for sideloaded APKs (GitHub Actions passes its run number);
+    // EAS production builds manage their own version code remotely.
+    versionCode: Number.parseInt(process.env.ANDROID_VERSION_CODE ?? '', 10) || 1,
     predictiveBackGestureEnabled: false,
     adaptiveIcon: {
       backgroundColor: '#35006B',
@@ -119,6 +122,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // LiveKit (calls + livestreams) — native WebRTC. Requires a development build.
     '@livekit/react-native-expo-plugin',
     '@config-plugins/react-native-webrtc',
+    // Release signing from FRIENDZY_UPLOAD_* Gradle properties (CI); debug keystore fallback.
+    './plugins/withAndroidReleaseSigning',
   ],
   experiments: {
     typedRoutes: true,

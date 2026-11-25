@@ -19,6 +19,9 @@ const tenorApiKey = process.env.EXPO_PUBLIC_TENOR_API_KEY ?? '';
 const appStoreUrl = process.env.EXPO_PUBLIC_APP_STORE_URL ?? '';
 const playStoreUrl = process.env.EXPO_PUBLIC_PLAY_STORE_URL ?? '';
 const androidApkUrl = process.env.EXPO_PUBLIC_ANDROID_APK_URL ?? '';
+// "owner/repository" on GitHub — the Download page looks up the latest Android APK release there
+// (set automatically on Netlify from the connected repository and by the Android workflow).
+const githubRepo = (process.env.EXPO_PUBLIC_GITHUB_REPO ?? '').trim();
 
 export const env = {
   supabaseUrl,
@@ -32,6 +35,7 @@ export const env = {
   appStoreUrl,
   playStoreUrl,
   androidApkUrl,
+  githubRepo,
 } as const;
 
 /** Which integrations currently have the public configuration they need. */
@@ -42,6 +46,7 @@ export const integrations = {
   appStore: Boolean(appStoreUrl),
   playStore: Boolean(playStoreUrl),
   androidApk: Boolean(androidApkUrl),
+  githubReleases: /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(githubRepo),
 } as const;
 
 export const APP = {

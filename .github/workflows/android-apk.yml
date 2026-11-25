@@ -1,0 +1,221 @@
+# Friendzy — Android APK (direct download from the website)
+#
+# Builds a release APK from the same code as the website and publishes it as a GitHub
+# release ("android-v<version>-<run>"). The website's Download page reads the latest release
+# through the public GitHub API, so the button appears automatically — no redeploy needed.
+#
+# Needs (Settings → Secrets and variables → Actions):
+#   Variables (public values, same as Netlify):
+#     EXPO_PUBLIC_SUPABASE_ANON_KEY   required
+#     EXPO_PUBLIC_SUPABASE_URL        optional — defaults to the Friendzy project below
+#     EXPO_PUBLIC_LIVEKIT_URL         optional — defaults to the Friendzy LiveKit project
+#     EXPO_PUBLIC_SITE_URL            optional — defaults to the Netlify site
+#     EXPO_PUBLIC_WEB_HOST            optional — enables Android App Links for a custom domain
+#   Secrets (optional, recommended before wide distribution — docs/SETUP.md §11):
+#     ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#   Without the signing secrets the APK is signed with the public debug keystore (installable,
+#   updates install over each other, but anyone could sign an APK with that key — test use only).
+#
+# The download link is public only if the repository is public (release assets inherit the
+# repository's visibility). For a private repository host the APK elsewhere and set
+# EXPO_PUBLIC_ANDROID_APK_URL on Netlify.
+
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'assets/**'
+      - 'plugins/**'
+      - 'app.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'babel.config.js'
+      - 'metro.config.js'
+      - 'tsconfig.json'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  EXPO_NO_TELEMETRY: '1'
+  CI: 'true'
+  NODE_OPTIONS: --max-old-space-size=6144
+
+jobs:
+  apk:
+    name: Build & publish the Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL || secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://gwdpsrjmfrgcloacvdlg.supabase.co' }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY || secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_LIVEKIT_URL: ${{ vars.EXPO_PUBLIC_LIVEKIT_URL || secrets.EXPO_PUBLIC_LIVEKIT_URL || 'wss://friendzy-9kc7beej.livekit.cloud' }}
+      EXPO_PUBLIC_SITE_URL: ${{ vars.EXPO_PUBLIC_SITE_URL || 'https://friendzychat.netlify.app' }}
+      EXPO_PUBLIC_WEB_HOST: ${{ vars.EXPO_PUBLIC_WEB_HOST }}
+      EXPO_PUBLIC_GITHUB_REPO: ${{ github.repository }}
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      - name: Check the public configuration (same rules as the website build)
+        run: node scripts/prepare-web-build.mjs --strict --target android
+
+      - name: Read the app version
+        id: app
+        run: |
+          npx expo config --type public --json > /tmp/app-config.json
+          VERSION=$(node -e "const s=require('fs').readFileSync('/tmp/app-config.json','utf8');console.log(JSON.parse(s.slice(s.indexOf('{'))).version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Friendzy v$VERSION (build $ANDROID_VERSION_CODE)"
+
+      - name: Generate the native Android project (Continuous Native Generation)
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Configure release signing
+        id: signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            if [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 is set but ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD are missing."
+              exit 1
+            fi
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/friendzy-upload.keystore
+            mkdir -p ~/.gradle
+            {
+              echo "FRIENDZY_UPLOAD_STORE_FILE=friendzy-upload.keystore"
+              echo "FRIENDZY_UPLOAD_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "FRIENDZY_UPLOAD_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "FRIENDZY_UPLOAD_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            } >> ~/.gradle/gradle.properties
+            echo "mode=release keystore" >> "$GITHUB_OUTPUT"
+            echo "Signing with the Friendzy upload keystore."
+          else
+            echo "mode=debug keystore (test signing)" >> "$GITHUB_OUTPUT"
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret: the APK is signed with the public debug keystore. Installable and updatable, but add the signing secrets before distributing widely (docs/SETUP.md §11)."
+          fi
+          grep -q 'FRIENDZY_UPLOAD_STORE_FILE' android/app/build.gradle || { echo "::error::plugins/withAndroidReleaseSigning.js did not apply"; exit 1; }
+
+      - name: Gradle settings for CI
+        run: |
+          cat >> android/gradle.properties <<'EOF'
+
+          # CI overrides (GitHub Actions runner: 4 vCPU / 16 GB)
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
+          org.gradle.parallel=true
+          EOF
+
+      - name: Build APK (arm64-v8a — recommended download)
+        working-directory: android
+        run: ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon --stacktrace
+
+      - name: Collect arm64 APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/friendzy-android-arm64.apk
+
+      - name: Build APK (universal — arm64-v8a + armeabi-v7a)
+        working-directory: android
+        run: ./gradlew :app:assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a --no-daemon
+
+      - name: Collect universal APK + checksums
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk out/friendzy-android.apk
+          (cd out && sha256sum friendzy-android-arm64.apk friendzy-android.apk > sha256sums.txt)
+          ls -la out
+          cat out/sha256sums.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: friendzy-android-apk
+          path: out/
+          retention-days: 30
+
+      - name: Publish the GitHub release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.app.outputs.version }}
+          SIGNING: ${{ steps.signing.outputs.mode }}
+        run: |
+          TAG="android-v${VERSION}-${ANDROID_VERSION_CODE}"
+          ARM64_MB=$(du -m out/friendzy-android-arm64.apk | cut -f1)
+          UNIVERSAL_MB=$(du -m out/friendzy-android.apk | cut -f1)
+          {
+            echo "Friendzy for Android **v${VERSION}** (build ${ANDROID_VERSION_CODE}), built from ${GITHUB_SHA::7}."
+            echo
+            echo "| File | For | Size |"
+            echo "| --- | --- | --- |"
+            echo "| friendzy-android-arm64.apk | most phones (64-bit ARM, 2017 or newer) | ${ARM64_MB} MB |"
+            echo "| friendzy-android.apk | older 32-bit phones (universal ARM build) | ${UNIVERSAL_MB} MB |"
+            echo "| sha256sums.txt | checksums to verify a download | — |"
+            echo
+            echo "Install: download, open the file, allow installs from your browser when Android asks, tap Install. New versions install over the old one."
+            echo
+            echo "Signing: ${SIGNING}."
+          } > /tmp/notes.md
+          gh release create "$TAG" out/friendzy-android-arm64.apk out/friendzy-android.apk out/sha256sums.txt \
+            --title "Friendzy for Android v${VERSION} (build ${ANDROID_VERSION_CODE})" --notes-file /tmp/notes.md --latest
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "arm64_mb=$ARM64_MB" >> "$GITHUB_OUTPUT"
+          echo "universal_mb=$UNIVERSAL_MB" >> "$GITHUB_OUTPUT"
+          # Keep the five most recent Android releases.
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("android-v"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
+            | while read -r old; do [ -n "$old" ] && gh release delete "$old" --yes --cleanup-tag || true; done
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          SIGNING: ${{ steps.signing.outputs.mode }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          {
+            echo "## Friendzy for Android — ${TAG}"
+            echo
+            echo "- Recommended: ${REPO_URL}/releases/download/${TAG}/friendzy-android-arm64.apk (${{ steps.release.outputs.arm64_mb }} MB)"
+            echo "- Universal: ${REPO_URL}/releases/download/${TAG}/friendzy-android.apk (${{ steps.release.outputs.universal_mb }} MB)"
+            echo "- Always-latest link: ${REPO_URL}/releases/latest/download/friendzy-android-arm64.apk"
+            echo "- Signing: ${SIGNING}"
+            echo
+            if [ "$PRIVATE" = "true" ]; then
+              echo "> ⚠️ This repository is **private**, so these links only work for people signed in to GitHub with access."
+              echo "> To make the Download page work for everyone: make the repository public (Settings → General → Danger Zone → Change visibility),"
+              echo "> or upload the APK somewhere public and set EXPO_PUBLIC_ANDROID_APK_URL on Netlify."
+            else
+              echo "The website's Download page picks this release up automatically (it reads the latest release through the GitHub API)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

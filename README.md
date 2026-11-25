@@ -30,7 +30,8 @@ npm run typecheck && npm run lint && npm test && npm run db:test
 
 ## Hosting & delivery
 - **GitHub Actions**: `CI` (typecheck, lint, unit tests, SQL suite, web export) on every push and pull request;
-  `Supabase deploy` (migrations + Edge Functions) on pushes to `main` once the repository secrets exist.
+  `Supabase deploy` (migrations + Edge Functions) on pushes to `main` once the repository secrets exist;
+  `Android APK` builds a signed APK and publishes it as a GitHub release that the website's Download page picks up automatically.
 - **Netlify**: builds from `netlify.toml` (`dist`, Node 22). Environment variables are the `EXPO_PUBLIC_*` values only.
 - **Supabase**: schema in `supabase/migrations`, Edge Functions in `supabase/functions`, secrets never in the repo.
 - **Mobile**: EAS profiles in `eas.json`.

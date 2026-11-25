@@ -168,16 +168,51 @@ The site is an installable web app: `public/manifest.webmanifest` + `public/sw.j
 Internet) and exact "Add to Home Screen" steps elsewhere (Safari on iPhone/iPad, Firefox, desktop). `npm run site:check` verifies
 the manifest, icons and service worker on the live site.
 
-### Native apps (owner action: Expo + store accounts)
+### Android app, downloadable from the website (automatic)
+`.github/workflows/android-apk.yml` builds a release APK on GitHub's servers — no Expo account, no Android Studio — on every
+push to `main` that touches app code (or by hand: **Actions → Android APK → Run workflow**). It publishes a GitHub release
+`android-v<version>-<build>` with `friendzy-android-arm64.apk` (recommended, 64-bit phones), `friendzy-android.apk` (universal,
+also 32-bit) and `sha256sums.txt`. The website's `/download` page reads the latest release through the public GitHub API and shows
+**Download for Android** with the real version, size and date — nothing to redeploy. Inside the app, the same page shows
+"Update available" when a newer build exists. The build takes 20–35 minutes.
+
+One-time setup:
+1. **GitHub → Settings → Secrets and variables → Actions → Variables → New repository variable:**
+   `EXPO_PUBLIC_SUPABASE_ANON_KEY` = the same anon key as in Netlify. (The Supabase URL, LiveKit URL and site URL default to the
+   Friendzy values; override them with variables of the same names if they change. `EXPO_PUBLIC_WEB_HOST` enables Android App
+   Links once a custom domain exists.) The workflow runs the same preflight as the website build and stops with a clear message
+   if the key is missing or rejected.
+2. **Make the download public.** Release files inherit the repository's visibility, so visitors can only download from a
+   **public** repository: Settings → General → Danger Zone → Change visibility → Public. The repository contains no secrets (the
+   preflight refuses to bundle any, and server secrets live in Supabase). If you prefer to keep it private, download the APK from
+   the release page yourself, upload it to any public host and set `EXPO_PUBLIC_ANDROID_APK_URL` in Netlify instead.
+3. **Signing key (recommended before handing the app to many people).** Without it the APK is signed with the public debug
+   keystore: it installs and updates fine, but anyone could sign an APK with that key. Create your own once (needs Java):
+   ```bash
+   keytool -genkeypair -v -keystore friendzy-upload.keystore -alias friendzy -keyalg RSA -keysize 2048 -validity 10000
+   base64 -w0 friendzy-upload.keystore > friendzy-upload.keystore.b64    # macOS: base64 -i friendzy-upload.keystore
+   ```
+   Add four **secrets** (Settings → Secrets and variables → Actions → Secrets): `ANDROID_KEYSTORE_BASE64` (contents of the .b64
+   file), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` (`friendzy`), `ANDROID_KEY_PASSWORD`. Keep the keystore file safe
+   (losing it means future updates cannot install over existing ones); never commit it. People who installed a debug-signed build
+   must uninstall once before installing the first properly signed one.
+4. Verify: `npm run site:check -- https://<site>.netlify.app` prints an "Android download" line with the release and file size,
+   or tells you why there is none (private repository, no release yet).
+
+How it works: `plugins/withAndroidReleaseSigning.js` adds a release signing config to the generated `android/app/build.gradle`
+(`npx expo prebuild`, Continuous Native Generation — `android/` is never committed), `app.config.ts` takes the Android
+`versionCode` from `ANDROID_VERSION_CODE` (the workflow's run number, so every build is a valid update), and the workflow keeps the
+five most recent Android releases.
+
+### iPhone / iPad and the stores (owner action: Expo + store accounts)
+Apple does not allow iPhone apps outside the App Store / TestFlight, so there is no iOS file to download; the Download page says
+so and offers Add to Home Screen. For the stores:
 1. `npx eas-cli@latest login` → `npx eas-cli@latest init` (creates the project; put the id in `EAS_PROJECT_ID` locally and in EAS).
-2. Early-access Android build you can hand out today:
-   `npx eas-cli@latest build --platform android --profile preview` → on the build page copy the **Download build** `.apk` link and set
-   it as `EXPO_PUBLIC_ANDROID_APK_URL` in Netlify → the Download page shows "Download for Android (.apk)". Nothing appears until the
-   value exists.
-3. Store releases: `npx eas-cli@latest build --platform all --profile production`, then `eas submit`; once the listings are live,
-   set `EXPO_PUBLIC_PLAY_STORE_URL` / `EXPO_PUBLIC_APP_STORE_URL` in Netlify and redeploy → store buttons appear.
+2. `npx eas-cli@latest build --platform all --profile production`, then `eas submit`; once the listings are live, set
+   `EXPO_PUBLIC_PLAY_STORE_URL` / `EXPO_PUBLIC_APP_STORE_URL` in Netlify and redeploy → store buttons appear.
    Push notifications need the EAS project id and FCM/APNs credentials (`eas credentials`). `eas.json` holds the profiles; fill the
-   submit section with your App Store Connect app id and Google Play service account when submitting.
+   submit section with your App Store Connect app id and Google Play service account when submitting. For Google Play, upload
+   the keystore from step 3 above as the upload key (`eas credentials`) so Play builds and website builds share one signature.
 
 ## 11. Test accounts
 Create accounts through the app (each needs a real inbox for verification). Never insert fake users into `auth.users`.

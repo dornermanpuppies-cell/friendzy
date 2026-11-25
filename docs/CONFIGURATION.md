@@ -98,3 +98,15 @@ for a custom domain. Netlify never needs a server secret.
 - `.github/workflows/supabase-deploy.yml` needs repository secrets `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`,
   `SUPABASE_DB_PASSWORD`; it skips itself until they exist. Edge Function secrets are set with the Supabase CLI, not stored in GitHub.
 - Netlify builds straight from the GitHub repository; no deploy token is needed in GitHub.
+
+### Android APK workflow (`.github/workflows/android-apk.yml`)
+| Where | Name | Purpose |
+| --- | --- | --- |
+| Variables | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | required — public anon key bundled into the APK (same as Netlify) |
+| Variables | `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_LIVEKIT_URL`, `EXPO_PUBLIC_SITE_URL`, `EXPO_PUBLIC_WEB_HOST` | optional overrides (defaults: the Friendzy project, LiveKit project and Netlify site) |
+| Secrets | `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | optional — upload keystore for release signing; without them the debug keystore is used (test signing) |
+| Automatic | `GITHUB_TOKEN` (`contents: write`) | creates the `android-v…` release and prunes old ones |
+
+The website reads the latest release through the GitHub API using `EXPO_PUBLIC_GITHUB_REPO` (`owner/repo`; Netlify derives it
+from the connected repository). Release downloads are public only when the repository is public; otherwise set
+`EXPO_PUBLIC_ANDROID_APK_URL` to a public copy of the file.

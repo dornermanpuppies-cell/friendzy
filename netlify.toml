@@ -26,7 +26,7 @@
   # (Supabase anon key + URL are protected by Row Level Security; the LiveKit URL is public), so
   # they are excluded from the scan. Every other variable is still scanned — a service-role key
   # or any real secret that leaks into the bundle still fails the build.
-  SECRETS_SCAN_OMIT_KEYS = "EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,EXPO_PUBLIC_LIVEKIT_URL,EXPO_PUBLIC_SITE_URL,EXPO_PUBLIC_WEB_HOST,EXPO_PUBLIC_TENOR_API_KEY,SECRETS_SCAN_OMIT_KEYS"
+  SECRETS_SCAN_OMIT_KEYS = "EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,EXPO_PUBLIC_LIVEKIT_URL,EXPO_PUBLIC_SITE_URL,EXPO_PUBLIC_WEB_HOST,EXPO_PUBLIC_TENOR_API_KEY,EXPO_PUBLIC_APP_STORE_URL,EXPO_PUBLIC_PLAY_STORE_URL,EXPO_PUBLIC_ANDROID_APK_URL,SECRETS_SCAN_OMIT_KEYS"
 
 [context.production]
   command = 'node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
@@ -45,6 +45,20 @@
   for = "/_expo/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Installable web app: manifest with the right MIME type; service worker never cached
+# so a new deploy replaces it on the next visit.
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json; charset=utf-8"
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Service-Worker-Allowed = "/"
 
 # Dynamic routes: dist/_redirects (generated at build time) rewrites e.g. /u/alice to the
 # route shell; unknown paths get 404.html (copied from Expo's +not-found route).

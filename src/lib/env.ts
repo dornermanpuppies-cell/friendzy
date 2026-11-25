@@ -15,6 +15,10 @@ const revenueCatIosKey = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '';
 const revenueCatAndroidKey = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '';
 const revenueCatTestKey = process.env.EXPO_PUBLIC_REVENUECAT_TEST_KEY ?? '';
 const tenorApiKey = process.env.EXPO_PUBLIC_TENOR_API_KEY ?? '';
+// Download page: store / direct-download links appear only when these exist (no decorative buttons).
+const appStoreUrl = process.env.EXPO_PUBLIC_APP_STORE_URL ?? '';
+const playStoreUrl = process.env.EXPO_PUBLIC_PLAY_STORE_URL ?? '';
+const androidApkUrl = process.env.EXPO_PUBLIC_ANDROID_APK_URL ?? '';
 
 export const env = {
   supabaseUrl,
@@ -25,6 +29,9 @@ export const env = {
   revenueCatAndroidKey,
   revenueCatTestKey,
   tenorApiKey,
+  appStoreUrl,
+  playStoreUrl,
+  androidApkUrl,
 } as const;
 
 /** Which integrations currently have the public configuration they need. */
@@ -32,6 +39,9 @@ export const integrations = {
   supabase: Boolean(supabaseUrl && supabaseAnonKey),
   liveKit: Boolean(liveKitUrl),
   revenueCat: Boolean(revenueCatIosKey || revenueCatAndroidKey || revenueCatTestKey),
+  appStore: Boolean(appStoreUrl),
+  playStore: Boolean(playStoreUrl),
+  androidApk: Boolean(androidApkUrl),
 } as const;
 
 export const APP = {

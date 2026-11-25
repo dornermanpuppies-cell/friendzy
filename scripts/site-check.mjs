@@ -151,6 +151,40 @@ for (const p of pages) {
 if (bad.length === 0) pass('Public pages and auth deep-link targets exist', `${pages.length} pages`);
 else fail('Public pages and auth deep-link targets exist', bad.join('; '));
 
+// 5b. Installable web app (PWA) ---------------------------------------------
+if (/rel="manifest"/.test(home.text)) {
+  const manifest = await get('/manifest.webmanifest');
+  let parsed = null;
+  try {
+    parsed = manifest.status === 200 ? JSON.parse(manifest.text) : null;
+  } catch {
+    parsed = null;
+  }
+  if (!parsed) {
+    fail('Installable: web app manifest', `GET /manifest.webmanifest → ${manifest.status || manifest.error}`);
+  } else {
+    const icons = Array.isArray(parsed.icons) ? parsed.icons : [];
+    const missingIcons = [];
+    for (const icon of icons) {
+      const res = await get(icon.src);
+      if (res.status !== 200 || !/image\/png/.test(res.headers.get('content-type') ?? '')) missingIcons.push(`${icon.src} → ${res.status || res.error}`);
+    }
+    const hasMaskable = icons.some((i) => /maskable/.test(i.purpose ?? ''));
+    const has512 = icons.some((i) => /512x512/.test(i.sizes ?? ''));
+    if (missingIcons.length) fail('Installable: web app manifest', `icon(s) not served: ${missingIcons.join('; ')}`);
+    else if (!has512 || !hasMaskable || !parsed.start_url || !parsed.display) fail('Installable: web app manifest', 'manifest lacks a 512px icon, a maskable icon, start_url or display');
+    else pass('Installable: web app manifest', `${icons.length} icons, display=${parsed.display}, served as ${manifest.headers.get('content-type') ?? '?'}`);
+  }
+  const sw = await get('/sw.js');
+  if (sw.status === 200 && /javascript/.test(sw.headers.get('content-type') ?? '') && /addEventListener\('fetch'/.test(sw.text)) pass('Installable: service worker served', `cache-control: ${sw.headers.get('cache-control') ?? 'none'}`);
+  else fail('Installable: service worker served', `GET /sw.js → ${sw.status || sw.error} (${sw.headers.get('content-type') ?? 'no content-type'})`);
+  const touch = await get('/apple-touch-icon.png');
+  if (touch.status === 200) pass('Installable: Apple touch icon');
+  else warn('Installable: Apple touch icon', `GET /apple-touch-icon.png → ${touch.status}`);
+} else {
+  warn('Installable: web app manifest', 'home page has no <link rel="manifest"> — this deploy predates the installable build');
+}
+
 // 6. Asset caching -----------------------------------------------------------
 if (scripts.length > 0) {
   const asset = await get(scripts[0].startsWith('http') ? scripts[0] : `${origin}${scripts[0].startsWith('/') ? '' : '/'}${scripts[0]}`);

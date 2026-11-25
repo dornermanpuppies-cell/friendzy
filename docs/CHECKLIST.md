@@ -80,6 +80,8 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | --- | --- |
 | Admin dashboard: overview, analytics, users (status, warnings, feature restrictions, notes, coins, Premium, verification, sessions, auth ban), reports queue & resolution, content removal/restore, live moderation, finance (withdrawals, ledger, purchases, subscriptions), settings & catalogues, site content (announcements, banners, featured creators, trending topics), verification queue, audit log, roles | 🧪 |
 | Role model (super_admin, admin, moderator, support, finance) enforced server-side; first admin via `bootstrap_first_admin` | ✅ DB |
+| Website installable as a web app (manifest, maskable icons, no-cache service worker, one-tap install prompt + per-browser "Add to Home Screen" steps on `/download`) | 🧪 | verified by `npm run site:check` once deployed |
+| Download page store buttons (`EXPO_PUBLIC_PLAY_STORE_URL`, `EXPO_PUBLIC_APP_STORE_URL`, `EXPO_PUBLIC_ANDROID_APK_URL`) | 🔑 | render only when the URLs exist; APK via `eas build --profile preview` |
 | EAS config (`eas.json`), Netlify config | 🧪 / 🔑 EAS project, store accounts |
 | Store submission, production security review on live project | ⏳ owner action |
 

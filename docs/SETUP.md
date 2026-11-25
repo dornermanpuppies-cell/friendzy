@@ -158,10 +158,22 @@ Workflows (`.github/workflows`):
 6. Custom domain later: Netlify → Domain management; then set `EXPO_PUBLIC_SITE_URL` (Production) and `EXPO_PUBLIC_WEB_HOST`
    (apex host without protocol, for universal links), update Supabase Site URL / redirect URLs, and redeploy.
 
-### Mobile (later)
-Set `EAS_PROJECT_ID` / `EXPO_OWNER`, then `npx eas-cli@latest build --profile development|preview|production --platform all`.
-Push notifications need the EAS project id and FCM/APNs credentials (`eas credentials`). `eas.json` holds the profiles; fill the
-submit section with your App Store Connect app id and Google Play service account when submitting.
+### Installing from the website (available now)
+The site is an installable web app: `public/manifest.webmanifest` + `public/sw.js` (no caching) + the meta tags in
+`src/app/+html.tsx`. `/download` shows a one-tap **Install app** button where the browser offers it (Chrome, Edge, Samsung
+Internet) and exact "Add to Home Screen" steps elsewhere (Safari on iPhone/iPad, Firefox, desktop). `npm run site:check` verifies
+the manifest, icons and service worker on the live site.
+
+### Native apps (owner action: Expo + store accounts)
+1. `npx eas-cli@latest login` → `npx eas-cli@latest init` (creates the project; put the id in `EAS_PROJECT_ID` locally and in EAS).
+2. Early-access Android build you can hand out today:
+   `npx eas-cli@latest build --platform android --profile preview` → on the build page copy the **Download build** `.apk` link and set
+   it as `EXPO_PUBLIC_ANDROID_APK_URL` in Netlify → the Download page shows "Download for Android (.apk)". Nothing appears until the
+   value exists.
+3. Store releases: `npx eas-cli@latest build --platform all --profile production`, then `eas submit`; once the listings are live,
+   set `EXPO_PUBLIC_PLAY_STORE_URL` / `EXPO_PUBLIC_APP_STORE_URL` in Netlify and redeploy → store buttons appear.
+   Push notifications need the EAS project id and FCM/APNs credentials (`eas credentials`). `eas.json` holds the profiles; fill the
+   submit section with your App Store Connect app id and Google Play service account when submitting.
 
 ## 11. Test accounts
 Create accounts through the app (each needs a real inbox for verification). Never insert fake users into `auth.users`.

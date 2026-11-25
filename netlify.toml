@@ -16,7 +16,7 @@
 [build]
   # EXPO_PUBLIC_GITHUB_REPO ("owner/repo", derived from the connected repository unless set) lets the
   # Download page find the latest Android APK release published by .github/workflows/android-apk.yml.
-  command = 'export EXPO_PUBLIC_GITHUB_REPO="${EXPO_PUBLIC_GITHUB_REPO:-$(echo "$REPOSITORY_URL" | sed -E "s#.*github.com[:/]##; s#\.git$##")}" && node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$DEPLOY_PRIME_URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
+  command = 'export EXPO_PUBLIC_GITHUB_REPO="${EXPO_PUBLIC_GITHUB_REPO:-$(echo "$REPOSITORY_URL" | sed -E "s#.*github.com[:/]##; s#\.git\$##")}" && node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$DEPLOY_PRIME_URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
   publish = "dist"
 
 [build.environment]
@@ -31,7 +31,7 @@
   SECRETS_SCAN_OMIT_KEYS = "EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,EXPO_PUBLIC_LIVEKIT_URL,EXPO_PUBLIC_SITE_URL,EXPO_PUBLIC_WEB_HOST,EXPO_PUBLIC_TENOR_API_KEY,EXPO_PUBLIC_APP_STORE_URL,EXPO_PUBLIC_PLAY_STORE_URL,EXPO_PUBLIC_ANDROID_APK_URL,EXPO_PUBLIC_GITHUB_REPO,REPOSITORY_URL,SECRETS_SCAN_OMIT_KEYS"
 
 [context.production]
-  command = 'export EXPO_PUBLIC_GITHUB_REPO="${EXPO_PUBLIC_GITHUB_REPO:-$(echo "$REPOSITORY_URL" | sed -E "s#.*github.com[:/]##; s#\.git$##")}" && node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
+  command = 'export EXPO_PUBLIC_GITHUB_REPO="${EXPO_PUBLIC_GITHUB_REPO:-$(echo "$REPOSITORY_URL" | sed -E "s#.*github.com[:/]##; s#\.git\$##")}" && node scripts/prepare-web-build.mjs --strict && EXPO_PUBLIC_SITE_URL="${EXPO_PUBLIC_SITE_URL:-$URL}" npx expo export --platform web && node scripts/netlify-redirects.mjs'
 
 # Security headers
 [[headers]]

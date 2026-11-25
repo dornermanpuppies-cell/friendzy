@@ -15,24 +15,14 @@ cp .env.example .env.local      # fill EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SU
 `.env.local` is gitignored. Only `EXPO_PUBLIC_*` values go there.
 
 ## 3. Database
-**Status (2026-11-25): migrations 0001–0011 are applied on project `gwdpsrjmfrgcloacvdlg`** (verified through the public API:
-RPCs answer, tables exist with RLS, all nine storage buckets are present). Three follow-ups:
+**Status (2026-11-25, evening): all 14 migrations (0001–0014) are applied on project `gwdpsrjmfrgcloacvdlg`** and the
+CLI migration history (`supabase_migrations.schema_migrations`) lists them, so `supabase db push --dry-run` reports nothing
+pending and the GitHub `supabase-deploy.yml` workflow will only ever apply *new* files. Verified live: 110 public tables, every
+one with RLS; `discover_people`, `search_people`, `match_find` and the other discovery RPCs answer; `match_queue` is in the
+realtime publication; `pg_net` is enabled; nine storage buckets exist. Nothing left to run for the current code.
 
-1. Run `supabase/migrations/20261125000012_hardening.sql` once in the SQL editor (unique keys for the seeded content banks +
-   a grant that lets signed-out visitors read the Premium plans table).
-1b. Run `supabase/migrations/20261125000013_discovery.sql` once in the SQL editor (friend discovery & Meet Someone: languages,
-   privacy flags, discovery/search RPCs, live matching queue, presence activity, `match_found` notifications, admin signals).
-   Both files are idempotent; the app's Discover, Friends, Search and Meet Someone screens need 0013 to work.
-2. Tell the Supabase CLI that these migrations are already in place, so `supabase db push` (locally or from the GitHub
-   workflow) only applies *future* files instead of replaying everything:
-   ```bash
-   supabase login
-   supabase link --project-ref gwdpsrjmfrgcloacvdlg
-   supabase migration repair --status applied 20261125000001 20261125000002 20261125000003 20261125000004 \
-     20261125000005 20261125000006 20261125000007 20261125000008 20261125000009 20261125000010 20261125000011 20261125000012 \
-     20261125000013
-   supabase db push --dry-run     # should report nothing pending
-   ```
+New migration files are applied either by the deploy workflow (once its three secrets exist) or by pasting the file into the
+SQL editor and then recording it: `insert into supabase_migrations.schema_migrations (version, name) values ('<timestamp>', '<name>');`.
 
 Fresh project (if you ever start over): paste `supabase/FRIENDZY_ALL_MIGRATIONS.sql` into the SQL editor (all migrations in order,
 idempotent), or `supabase db push` on a linked project. Verify: Table Editor shows ~110 tables, Storage shows buckets
@@ -48,6 +38,14 @@ select public.bootstrap_first_admin('you@example.com');
 This works only while no admin exists. Further roles are granted from Administration → Admins (super admin only).
 
 ## 5. Edge Functions & secrets
+**Status (2026-11-25):** all seven functions are deployed on the live project through the Management API (`livekit-token`,
+`game-engine`, `admin-actions` with JWT verification; `send-email`, `revenuecat-webhook`, `push-dispatch`, `livekit-webhook`
+without, as in `supabase/config.toml`). `game-engine` and `livekit-webhook` were uploaded as single-file bundles of the
+multi-file sources (same code; a later `npm run functions:deploy` simply replaces them). Function secrets set: `LIVEKIT_URL`,
+`LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `SITE_URL`, `PUSH_WEBHOOK_SECRET`. Still unset, so those two functions answer
+"not configured" until the owner adds them: `RESEND_API_KEY` + `SEND_EMAIL_HOOK_SECRET` (+ enable the Send Email hook) and
+`REVENUECAT_WEBHOOK_AUTH`. Rotate the LiveKit key pair that was pasted into chat and update the two secrets afterwards.
+
 ```bash
 cp supabase/.env.example supabase/.env.local     # fill the secrets (never commit)
 supabase secrets set --env-file supabase/.env.local
@@ -58,6 +56,13 @@ Functions: `livekit-token` (calls/live tokens), `game-engine` (authoritative gam
 `--no-verify-jwt` because external services call them; each authenticates with its own secret header.
 
 ## 6. Supabase dashboard settings
+**Status (2026-11-25):** Site URL and redirect URLs are configured for `https://friendzychat.netlify.app` (plus the Netlify
+deploy-preview wildcard, the `friendzy://` scheme and localhost). Push webhooks no longer need the dashboard: migration 0014
+installs `AFTER INSERT` triggers on `notifications` and `messages` that call `push-dispatch` through `pg_net`, reading the
+`x-webhook-secret` value from Supabase Vault (secret `push_webhook_secret`, same value as the `PUSH_WEBHOOK_SECRET` function
+secret). Still open for the owner: custom SMTP for auth emails — the built-in mailer allows only a couple of emails per hour,
+which blocks real sign-ups; add Resend (or any SMTP) under Authentication → SMTP settings, or configure the `send-email` hook.
+
 - **Authentication → URL configuration**: Site URL = the Netlify site (`https://<site>.netlify.app`, later the custom domain).
   Redirect URLs: `https://<site>.netlify.app/auth/callback`, `https://<site>.netlify.app/auth/confirm`,
   `https://*--<site>.netlify.app/auth/**` (deploy previews and branch deploys), `friendzy://auth/callback`, `friendzy://auth/confirm`,

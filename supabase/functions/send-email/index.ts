@@ -12,7 +12,8 @@
 // Links use the token_hash flow (/auth/confirm) so they work even when the
 // email is opened on a different device than the one that started the flow.
 
-import { Webhook } from 'https://esm.sh/standardwebhooks@1.0.0';
+// npm: specifier — the esm.sh build of this package failed to start on the hosted edge runtime (BOOT_ERROR).
+import { Webhook } from 'npm:standardwebhooks@1.0.0';
 
 type EmailActionType =
   | 'signup'

@@ -48,6 +48,8 @@ Where every credential lives, who may see it, and what it unlocks. **Never paste
   SwiftUI). Friendzy uses the Friendzy identifiers above unless you decide otherwise; the test key (`test_…`) can be used with development builds.
 
 ## Push notifications
+**Live project:** the database→function webhooks are installed by migration 0014 (`public.push_dispatch_webhook`, triggers on `notifications` and `messages`, pg_net). The header secret is read from Supabase Vault (`push_webhook_secret`) and must equal the `PUSH_WEBHOOK_SECRET` function secret — rotate both together (`vault.update_secret` + dashboard secret).
+
 `src/services/push.ts` registers Expo push tokens in `user_devices` (needs `EAS_PROJECT_ID` and a physical device). Delivery happens from
 `push-dispatch`, triggered by Database Webhooks on `public.notifications` and `public.messages` (INSERT). Preferences in
 `notification_preferences` and per-chat mute/notification settings are honoured server-side.

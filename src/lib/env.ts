@@ -6,11 +6,13 @@
  * (LiveKit API secret, Resend key, RevenueCat secret keys, payment secrets) live
  * exclusively in Supabase Edge Function secrets. See docs/CONFIGURATION.md.
  */
+import { normalizePublicUrl, stripWrappingQuotes } from '@/lib/publicConfig';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL ?? 'http://localhost:8081').replace(/\/$/, '');
-const liveKitUrl = process.env.EXPO_PUBLIC_LIVEKIT_URL ?? '';
+// Pasted values are read forgivingly (wrapping quotes, missing https:// or wss://, trailing slash).
+const supabaseUrl = normalizePublicUrl(process.env.EXPO_PUBLIC_SUPABASE_URL, 'https');
+const supabaseAnonKey = stripWrappingQuotes(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
+const siteUrl = normalizePublicUrl(process.env.EXPO_PUBLIC_SITE_URL, 'https') || 'http://localhost:8081';
+const liveKitUrl = normalizePublicUrl(process.env.EXPO_PUBLIC_LIVEKIT_URL, 'wss');
 const revenueCatIosKey = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '';
 const revenueCatAndroidKey = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '';
 const revenueCatTestKey = process.env.EXPO_PUBLIC_REVENUECAT_TEST_KEY ?? '';

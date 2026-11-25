@@ -127,6 +127,15 @@ jobs:
       - name: Check the public configuration (same rules as the website build)
         run: node scripts/prepare-web-build.mjs --strict --target android
 
+      - name: Apply repaired public values (quotes / missing scheme fixed by the preflight)
+        run: |
+          if [ -f .build-env.sh ] && grep -q '^export ' .build-env.sh; then
+            sed -nE "s/^export ([A-Z0-9_]+)='(.*)'$/\1=\2/p" .build-env.sh >> "$GITHUB_ENV"
+            echo "Applied:"; sed -nE "s/^export ([A-Z0-9_]+)=.*/  \1/p" .build-env.sh
+          else
+            echo "Nothing to repair."
+          fi
+
       - name: Read the app version
         id: app
         run: |

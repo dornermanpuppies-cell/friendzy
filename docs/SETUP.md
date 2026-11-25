@@ -149,6 +149,11 @@ Workflows (`.github/workflows`):
    that file is deployed, adding the same variable in the Netlify UI has the same effect:
    `SECRETS_SCAN_OMIT_KEYS = EXPO_PUBLIC_SUPABASE_URL,EXPO_PUBLIC_SUPABASE_ANON_KEY,EXPO_PUBLIC_LIVEKIT_URL`.
    Everything else stays scanned, so a leaked service-role key would still stop a deploy.
+   **Common mistakes the build now catches.** Values must be complete, e.g. `https://gwdpsrjmfrgcloacvdlg.supabase.co` and
+   `wss://friendzy-9kc7beej.livekit.cloud` — no quotes around them, nothing else. A pasted pair of quotes, a missing `https://`
+   / `wss://` or a trailing slash is repaired automatically (the log says `repaired …`); anything else stops the build with
+   the exact value to enter. A variable marked "contains secret values" is printed as `****` in the log *and* hidden in the UI,
+   so if the log rejects a `****` value you cannot inspect it: delete that variable and add it again with the box unticked.
 3. **Deploy site.** The build runs a preflight (`scripts/prepare-web-build.mjs --strict`) that fails loudly — naming the variable —
    when one of the three values is missing, misspelled, rejected by Supabase or is a secret key, and clears Metro's cache so changed
    values are always inlined. Then it exports the static site and generates the rewrites for dynamic routes

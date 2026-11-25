@@ -114,7 +114,12 @@ if (scripts.length === 0) {
   const check = (label, value, hint) => {
     if (!value) warn(label, 'expected value unknown locally (set it in .env.local to verify)');
     else if (bundle.includes(value)) pass(label);
-    else fail(label, hint);
+    else {
+      // Older deploys may hold the value without its scheme (the app repairs that at runtime).
+      const host = value.replace(/^[a-z]+:\/\//i, '').replace(/\/+$/, '');
+      if (host && host !== value && bundle.includes(host)) warn(label, `baked without its scheme ("${host}") — works (repaired at runtime), but re-enter the full value in Netlify`);
+      else fail(label, hint);
+    }
   };
   check('EXPO_PUBLIC_SUPABASE_URL baked into the build', expected.supabaseUrl, 'not in the bundle — add it in Netlify → Environment variables and redeploy ("Clear cache and deploy")');
   check('EXPO_PUBLIC_SUPABASE_ANON_KEY baked into the build', expected.anonKey, 'not in the bundle — add it in Netlify → Environment variables and redeploy');

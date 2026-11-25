@@ -54,6 +54,9 @@ coverage/
 # Netlify CLI state
 .netlify/
 
+# repaired public values written by scripts/prepare-web-build.mjs for one build
+.build-env.sh
+
 # store credentials referenced by eas.json — never commit
 google-play-service-account.json
 

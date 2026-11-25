@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 
@@ -20,11 +21,20 @@ const AUDIENCE_LABELS: Record<AudienceType, string> = { everyone: 'Everyone', fo
 const AUDIENCE_OPTIONS: AudienceType[] = ['everyone', 'followers', 'friends', 'nobody'];
 
 export default function PrivacySettingsScreen() {
-  const { user, profile, settings } = useAuth();
+  const { user, profile, settings, privateData } = useAuth();
   const patchSettings = useAuthStore((s) => s.patchSettings);
   const patchProfile = useAuthStore((s) => s.patchProfile);
   const toast = useToast();
   const [editing, setEditing] = useState<{ key: AudienceKey; title: string } | null>(null);
+  const isAdult = (() => {
+    if (!privateData?.birth_date) return false;
+    const d = new Date(privateData.birth_date);
+    if (Number.isNaN(d.getTime())) return false;
+    const now = new Date();
+    let age = now.getFullYear() - d.getFullYear();
+    if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age -= 1;
+    return age >= 18;
+  })();
 
   const saveSetting = async <K extends keyof Omit<UserSettingsRow, 'user_id' | 'created_at' | 'updated_at'>>(key: K, value: UserSettingsRow[K]) => {
     if (!user || !settings) return;
@@ -63,7 +73,16 @@ export default function PrivacySettingsScreen() {
       <ListSection title="Activity status">
         <ListItem icon="ellipse-outline" title="Show online status" subtitle="Others can see when you're active" switchValue={settings.show_online_status} onSwitchChange={(v) => void saveSetting('show_online_status', v)} />
         <ListItem icon="time-outline" title="Show last seen" subtitle="Others can see when you were last active" switchValue={settings.show_last_seen} onSwitchChange={(v) => void saveSetting('show_last_seen', v)} />
-        <ListItem icon="checkmark-done-outline" title="Read receipts" subtitle="Applies to messages (coming in the messaging phase)" switchValue={settings.read_receipts} onSwitchChange={(v) => void saveSetting('read_receipts', v)} />
+        <ListItem icon="chatbubbles-outline" title="Show what I'm doing" subtitle="Lets people see “Chatting now” while you are in a conversation. Off by default." switchValue={settings.show_activity} onSwitchChange={(v) => void saveSetting('show_activity', v)} disabled={!settings.show_online_status} />
+        <ListItem icon="checkmark-done-outline" title="Read receipts" subtitle="Applies to messages" switchValue={settings.read_receipts} onSwitchChange={(v) => void saveSetting('read_receipts', v)} />
+      </ListSection>
+
+      <ListSection title="Profile details">
+        <ListItem icon="calendar-outline" title="Show my age" subtitle={isAdult ? 'Your age appears on your profile and in Discover. Your birth date is never shown.' : 'Available from age 18. Your age is never shown before that.'} switchValue={settings.show_age && isAdult} onSwitchChange={(v) => void saveSetting('show_age', v)} disabled={!isAdult} />
+        <ListItem icon="flag-outline" title="Show my country" switchValue={settings.show_country} onSwitchChange={(v) => void saveSetting('show_country', v)} />
+        <ListItem icon="business-outline" title="Show my city" subtitle="Only the city you typed on your profile — never your location" switchValue={settings.show_city} onSwitchChange={(v) => void saveSetting('show_city', v)} disabled={!settings.show_country} />
+        <ListItem icon="language-outline" title="Show my languages" switchValue={settings.show_languages} onSwitchChange={(v) => void saveSetting('show_languages', v)} />
+        <ListItem icon="male-female-outline" title="Show my gender" subtitle="Needed for people's gender filters to include you" switchValue={settings.show_gender} onSwitchChange={(v) => void saveSetting('show_gender', v)} />
       </ListSection>
 
       <ListSection title="Who can…">
@@ -73,10 +92,10 @@ export default function PrivacySettingsScreen() {
         <ListItem icon="aperture-outline" title="See my stories" value={AUDIENCE_LABELS[settings.story_audience]} onPress={() => setEditing({ key: 'story_audience', title: 'Story audience' })} />
       </ListSection>
 
-      <ListSection title="Discovery & location">
-        <ListItem icon="shuffle-outline" title="Random matching" subtitle="Let Friendzy match you with people who share your interests" switchValue={settings.random_match_enabled} onSwitchChange={(v) => void saveSetting('random_match_enabled', v)} />
+      <ListSection title="Discovery & matching">
+        <ListItem icon="shuffle-outline" title="Meet Someone" subtitle="Let Friendzy match you live with people who fit your preferences (18+)" switchValue={settings.random_match_enabled} onSwitchChange={(v) => void saveSetting('random_match_enabled', v)} />
+        <ListItem icon="options-outline" title="Match preferences" subtitle="Countries, languages, gender, age range, shared interests" onPress={() => router.navigate('/match' as never)} />
         <ListItem icon="location-outline" title="Nearby discovery" subtitle="Uses an approximate location only. Your exact location is never shared." switchValue={settings.nearby_enabled} onSwitchChange={(v) => void saveSetting('nearby_enabled', v)} />
-        <ListItem icon="flag-outline" title="Show my country on my profile" switchValue={settings.show_country} onSwitchChange={(v) => void saveSetting('show_country', v)} />
       </ListSection>
 
       <Sheet visible={Boolean(editing)} onClose={() => setEditing(null)} title={editing?.title}>

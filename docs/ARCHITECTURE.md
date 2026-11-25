@@ -25,7 +25,7 @@ src/services/*                  typed data access (Supabase RPCs, storage upload
 src/store/*                     zustand stores (auth, chat, posts, videos, badges)
 src/lib/*                       env, supabase client, secure storage, LiveKit adapters (native/web), RevenueCat adapters (native/web)
 src/theme/*                     tokens + ThemeProvider (light/dark, per-screen ThemeScope, Premium accents)
-supabase/migrations             10 SQL migrations (schema, RLS, RPCs, triggers, seeds)
+supabase/migrations             13 SQL migrations (schema, RLS, RPCs, triggers, seeds)
 supabase/tests                  SQL test-suite (run by scripts/db-test.mjs on embedded PostgreSQL)
 supabase/functions              Edge Functions + _shared/games (pure TypeScript engines shared with the app)
 ```

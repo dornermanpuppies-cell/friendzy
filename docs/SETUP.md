@@ -16,22 +16,26 @@ cp .env.example .env.local      # fill EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SU
 
 ## 3. Database
 **Status (2026-11-25): migrations 0001–0011 are applied on project `gwdpsrjmfrgcloacvdlg`** (verified through the public API:
-RPCs answer, tables exist with RLS, all nine storage buckets are present). Two follow-ups:
+RPCs answer, tables exist with RLS, all nine storage buckets are present). Three follow-ups:
 
 1. Run `supabase/migrations/20261125000012_hardening.sql` once in the SQL editor (unique keys for the seeded content banks +
    a grant that lets signed-out visitors read the Premium plans table).
+1b. Run `supabase/migrations/20261125000013_discovery.sql` once in the SQL editor (friend discovery & Meet Someone: languages,
+   privacy flags, discovery/search RPCs, live matching queue, presence activity, `match_found` notifications, admin signals).
+   Both files are idempotent; the app's Discover, Friends, Search and Meet Someone screens need 0013 to work.
 2. Tell the Supabase CLI that these migrations are already in place, so `supabase db push` (locally or from the GitHub
    workflow) only applies *future* files instead of replaying everything:
    ```bash
    supabase login
    supabase link --project-ref gwdpsrjmfrgcloacvdlg
    supabase migration repair --status applied 20261125000001 20261125000002 20261125000003 20261125000004 \
-     20261125000005 20261125000006 20261125000007 20261125000008 20261125000009 20261125000010 20261125000011 20261125000012
+     20261125000005 20261125000006 20261125000007 20261125000008 20261125000009 20261125000010 20261125000011 20261125000012 \
+     20261125000013
    supabase db push --dry-run     # should report nothing pending
    ```
 
 Fresh project (if you ever start over): paste `supabase/FRIENDZY_ALL_MIGRATIONS.sql` into the SQL editor (all migrations in order,
-idempotent), or `supabase db push` on a linked project. Verify: Table Editor shows ~107 tables, Storage shows buckets
+idempotent), or `supabase db push` on a linked project. Verify: Table Editor shows ~110 tables, Storage shows buckets
 `avatars`, `covers`, `posts`, `stories`, `chat`, `videos`, `live`, `verification`, `banners`.
 
 Local proof: `npm run db:test` boots an embedded PostgreSQL, applies the migrations and runs the SQL test-suite.

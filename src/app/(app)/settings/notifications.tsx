@@ -27,7 +27,8 @@ const GROUPS: { title: string; items: { key: PrefKey; label: string; subtitle?: 
     title: 'Social',
     items: [
       { key: 'new_followers', label: 'New followers' },
-      { key: 'friend_requests', label: 'Friend requests' },
+      { key: 'friend_requests', label: 'Friend requests', subtitle: 'New requests and accepted requests' },
+      { key: 'matches', label: 'Meet Someone matches', subtitle: 'When someone is matched with you live' },
       { key: 'likes', label: 'Likes' },
       { key: 'comments', label: 'Comments & replies' },
       { key: 'mentions', label: 'Mentions' },

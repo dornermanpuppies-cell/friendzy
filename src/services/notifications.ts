@@ -88,6 +88,8 @@ export function describeNotification(item: NotificationItem): { title: string; b
       return { title: name, body: 'sent you a friend request', href: '/requests' };
     case 'friend_request_accepted':
       return { title: name, body: 'accepted your friend request — you are now friends', href: profileHref };
+    case 'match_found':
+      return { title: name, body: 'was matched with you in Meet Someone', href: profileHref ?? '/match' };
     case 'post_like': {
       const reaction = String((item.data as { reaction?: string })?.reaction ?? 'like');
       return { title: name, body: reaction === 'like' ? 'liked your post' : `reacted ${reaction} to your post`, href: item.entity_id ? `/post/${item.entity_id}` : null };

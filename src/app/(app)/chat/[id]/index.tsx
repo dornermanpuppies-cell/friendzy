@@ -26,7 +26,7 @@ import { ReportSheet } from '@/features/profile/ReportSheet';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { startCall } from '@/services/calls';
 import { deleteMessage, editMessage, fetchConversation, getMessageInfo, markConversationRead, pinMessage, reactToMessage, respondMessageRequest, starMessage, subscribeToConversation } from '@/services/messaging';
-import { getPresence } from '@/services/presence';
+import { getPresence, setPresenceActivity } from '@/services/presence';
 import { blockUser } from '@/services/safety';
 import { useAuth } from '@/store/authStore';
 import { useBadgeStore } from '@/store/badgeStore';
@@ -148,6 +148,18 @@ export default function ChatScreen() {
         void refreshInbox();
       });
     }, [conversationId, conversation?.id, conversation?.is_request]), // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // "Chatting now" presence — only visible to others if the user enabled "Show what I'm doing" in Privacy.
+  useFocusEffect(
+    useCallback(() => {
+      void setPresenceActivity('chatting');
+      const keepAlive = setInterval(() => void setPresenceActivity('chatting'), 120_000);
+      return () => {
+        clearInterval(keepAlive);
+        void setPresenceActivity(null);
+      };
+    }, []),
   );
 
   const wallpaper = wallpaperFor(conversation?.wallpaper ?? profile?.id ? conversation?.wallpaper : null);

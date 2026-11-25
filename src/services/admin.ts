@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { AdminAnalytics, AdminContentItem, AdminMember, AdminOverview, AdminReport, AdminSetting, AdminTransaction, AdminUser, AdminWithdrawal, Announcement, AuditLog, Banner, TrendingTopic, VerificationRequest } from '@/types/admin';
+import type { AdminAnalytics, AdminContentItem, AdminDiscoveryAbuse, AdminMember, AdminOverview, AdminReport, AdminSetting, AdminTransaction, AdminUser, AdminWithdrawal, Announcement, AuditLog, Banner, TrendingTopic, VerificationRequest } from '@/types/admin';
 import type { AccountStatus, AdminRoleType, Json, ReportStatus } from '@/types/database';
 import type { CoinPackage, GiftItem, PremiumPlan } from '@/types/economy';
 import type { LiveSession } from '@/types/live';
@@ -99,6 +99,9 @@ export const setFeaturedCreator = (userId: string, featured: boolean, note?: str
 export const upsertTrendingTopic = (t: Partial<TrendingTopic> & { id?: number | null }) =>
   call<TrendingTopic>('admin_upsert_trending_topic', { p_id: t.id ?? null, p_tag: t.tag ?? null, p_label: t.label ?? null, p_kind: t.kind ?? null, p_sort_order: t.sort_order ?? null, p_is_active: t.is_active ?? null });
 export const deleteTrendingTopic = (id: number) => call<undefined>('admin_delete_trending_topic', { p_id: id });
+
+// Discovery & matching abuse signals
+export const getDiscoveryAbuse = (hours = 24) => call<AdminDiscoveryAbuse>('admin_discovery_abuse', { p_hours: hours });
 
 // Verification
 export const listVerificationRequests = (status: string = 'pending', limit = 50, offset = 0) => call<Json>('admin_list_verification_requests', { p_status: status, p_limit: limit, p_offset: offset }).then((d) => rows<VerificationRequest>(d));

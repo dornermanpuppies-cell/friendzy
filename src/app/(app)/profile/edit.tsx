@@ -7,12 +7,17 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
+import { Chip } from '@/components/ui/Chip';
 import { CountryPicker } from '@/components/ui/CountryPicker';
 import { Input } from '@/components/ui/Input';
 import { Screen } from '@/components/ui/Screen';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
+import { MAX_LANGUAGES, languageName } from '@/constants/languages';
+import { LanguagePickerSheet } from '@/features/discover/LanguagePickerSheet';
+import { useAsync } from '@/hooks/useAsync';
+import { getUserLanguages, setMyLanguages } from '@/services/languages';
 import { pickImage, removeProfileImage, uploadProfileImage, type PickedImage } from '@/services/media';
 import { isUsernameAvailable, updateMyProfile } from '@/services/profiles';
 import { useAuth, useAuthStore } from '@/store/authStore';
@@ -37,6 +42,10 @@ export default function EditProfileScreen() {
   const [cover, setCover] = useState<PickedImage | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [languagesOpen, setLanguagesOpen] = useState(false);
+  const [languagesDraft, setLanguagesDraft] = useState<string[] | null>(null);
+  const savedLanguages = useAsync(() => (user ? getUserLanguages(user.id) : Promise.resolve([])), [user?.id]);
+  const languages = languagesDraft ?? savedLanguages.data ?? [];
 
   if (!profile || !user) return <Screen header={<ScreenHeader title="Edit profile" />} />;
 
@@ -88,6 +97,7 @@ export default function EditProfileScreen() {
         avatar_url: avatarUrl,
         cover_url: coverUrl,
       });
+      if (languagesDraft) await setMyLanguages(user.id, languagesDraft);
       setProfile(updated);
       toast.success('Profile updated');
       if (router.canGoBack()) router.back();
@@ -150,7 +160,22 @@ export default function EditProfileScreen() {
       </View>
       <Input label="City" value={city} onChangeText={setCity} error={errors.city} maxLength={80} placeholder="Optional" containerStyle={{ marginTop: spacing.lg }} autoCapitalize="words" />
       <Input label="Website" value={website} onChangeText={setWebsite} error={errors.website} placeholder="https://" autoCapitalize="none" keyboardType="url" containerStyle={{ marginTop: spacing.lg }} />
+
+      <Text variant="smallMedium" color="textSecondary" style={{ marginTop: spacing.lg, marginBottom: spacing.sm }}>
+        Languages you speak
+      </Text>
+      <View style={styles.languages}>
+        {languages.map((code) => (
+          <Chip key={code} label={languageName(code)} size="sm" selected icon="close" onPress={() => setLanguagesDraft(languages.filter((c) => c !== code))} />
+        ))}
+        <Chip label={languages.length ? 'Add' : 'Add languages'} icon="add" size="sm" onPress={() => setLanguagesOpen(true)} disabled={languages.length >= MAX_LANGUAGES} />
+      </View>
+      <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
+        Helps people find you by language and improves your matches. You can hide languages in Settings → Privacy.
+      </Text>
+
       <Button title="Save changes" fullWidth size="lg" onPress={save} loading={saving} style={{ marginTop: spacing['2xl'] }} />
+      <LanguagePickerSheet visible={languagesOpen} onClose={() => setLanguagesOpen(false)} value={languages} onChange={setLanguagesDraft} />
     </Screen>
   );
 }
@@ -161,4 +186,5 @@ const styles = StyleSheet.create({
   avatarRow: { flexDirection: 'row', alignItems: 'flex-end', marginTop: -40, paddingLeft: spacing.lg, gap: spacing.md },
   avatarRing: { borderWidth: 4, borderRadius: radius.full },
   avatarBadge: { position: 'absolute', right: 2, bottom: 2, width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  languages: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
 });

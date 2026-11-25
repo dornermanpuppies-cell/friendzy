@@ -36,6 +36,7 @@ const TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   follow_request_accepted: 'checkmark-circle',
   friend_request: 'people',
   friend_request_accepted: 'people',
+  match_found: 'shuffle',
   security_alert: 'shield-checkmark',
 };
 

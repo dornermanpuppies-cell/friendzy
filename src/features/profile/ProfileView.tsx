@@ -18,6 +18,7 @@ import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
 import type { InterestItem } from '@/constants/interests';
 import { countryName, flagEmoji } from '@/constants/countries';
+import { languageNames } from '@/constants/languages';
 import { PostCard } from '@/features/feed/PostCard';
 import { useAsync } from '@/hooks/useAsync';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -29,8 +30,8 @@ import { usePostStore } from '@/store/postStore';
 import { useTheme } from '@/theme/ThemeProvider';
 import { gradients, layout, palette, radius, spacing } from '@/theme/tokens';
 import type { PresenceInfo, ProfileRow } from '@/types/database';
-import type { PostCard as PostCardModel } from '@/types/social';
-import { formatCount, lastSeenLabel } from '@/utils/format';
+import type { DiscoverCard, PostCard as PostCardModel } from '@/types/social';
+import { formatCount, formatDate, lastSeenLabel } from '@/utils/format';
 
 import { ReportSheet } from './ReportSheet';
 
@@ -40,6 +41,12 @@ export interface ProfileViewProps {
   profile: ProfileRow;
   isOwner: boolean;
   interests?: InterestItem[];
+  /** Spoken languages (ISO 639-1). Empty when hidden by the owner. */
+  languages?: string[];
+  /** Age — only provided when the owner is an adult who shows it. */
+  age?: number | null;
+  /** Friends in common with the viewer (not shown for the owner). */
+  mutualFriends?: DiscoverCard[];
   presence?: PresenceInfo | null;
   actions?: ReactNode;
   onBlock?: () => void;
@@ -119,7 +126,7 @@ function PostsTab({ userId, kind, isOwner }: { userId: string; kind: 'posts' | '
   );
 }
 
-export function ProfileView({ profile, isOwner, interests = [], presence, actions, onBlock, onUnblock, isBlocking, header, renderTab }: ProfileViewProps) {
+export function ProfileView({ profile, isOwner, interests = [], languages = [], age, mutualFriends = [], presence, actions, onBlock, onUnblock, isBlocking, header, renderTab }: ProfileViewProps) {
   const { colors } = useTheme();
   const { isDesktop } = useBreakpoint();
   const toast = useToast();
@@ -211,6 +218,12 @@ export function ProfileView({ profile, isOwner, interests = [], presence, action
             <Text variant="body" color="textMuted">
               @{profile.username}
             </Text>
+            {age ? (
+              <Text variant="body" color="textMuted">
+                {'  ·  '}
+                {age}
+              </Text>
+            ) : null}
             {profile.country_code ? (
               <Text variant="body" color="textMuted">
                 {'  ·  '}
@@ -223,9 +236,46 @@ export function ProfileView({ profile, isOwner, interests = [], presence, action
             <View style={styles.presenceRow}>
               <View style={[styles.presenceDot, { backgroundColor: presence.is_online ? palette.success : colors.textMuted }]} />
               <Text variant="small" color={presence.is_online ? 'success' : 'textMuted'}>
-                {lastSeenLabel(presence.last_seen_at, presence.is_online)}
+                {presence.is_online && presence.activity === 'chatting' ? 'Chatting now' : presence.is_online && presence.activity === 'live' ? 'Live now' : presence.is_online && presence.activity === 'gaming' ? 'Playing a game' : lastSeenLabel(presence.last_seen_at, presence.is_online)}
               </Text>
             </View>
+          ) : null}
+          <View style={styles.factsRow}>
+            <View style={styles.fact}>
+              <Ionicons name="calendar-outline" size={14} color={colors.textMuted} />
+              <Text variant="small" color="textMuted" style={{ marginLeft: 4 }}>
+                Joined {formatDate(profile.created_at, 'MMM yyyy')}
+              </Text>
+            </View>
+            {languages.length > 0 ? (
+              <View style={styles.fact}>
+                <Ionicons name="language-outline" size={14} color={colors.textMuted} />
+                <Text variant="small" color="textMuted" style={{ marginLeft: 4 }} numberOfLines={1}>
+                  Speaks {languageNames(languages, 4)}
+                </Text>
+              </View>
+            ) : isOwner ? (
+              <Pressable onPress={() => router.navigate('/profile/edit')} style={styles.fact} accessibilityRole="button">
+                <Ionicons name="language-outline" size={14} color={colors.primary} />
+                <Text variant="smallMedium" color="primary" style={{ marginLeft: 4 }}>
+                  Add languages you speak
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {!isOwner && mutualFriends.length > 0 ? (
+            <Pressable onPress={() => router.navigate(`/connections/${profile.username}?tab=friends` as never)} style={styles.mutualRow} accessibilityRole="button" accessibilityLabel={`${mutualFriends.length} mutual friends`}>
+              <View style={styles.mutualAvatars}>
+                {mutualFriends.slice(0, 3).map((m, i) => (
+                  <View key={m.id} style={[styles.mutualAvatar, { borderColor: colors.background, marginLeft: i === 0 ? 0 : -10 }]}>
+                    <Avatar uri={m.avatar_url} name={m.display_name} size={26} />
+                  </View>
+                ))}
+              </View>
+              <Text variant="small" color="textSecondary" style={{ flex: 1, marginLeft: spacing.sm }} numberOfLines={1}>
+                {mutualFriends.length === 1 ? `Friends with ${mutualFriends[0].display_name}` : `Friends with ${mutualFriends[0].display_name} and ${mutualFriends.length - 1} other${mutualFriends.length - 1 === 1 ? '' : 's'}`}
+              </Text>
+            </Pressable>
           ) : null}
           {profile.bio ? (
             <Text variant="body" style={{ marginTop: spacing.md }}>
@@ -369,6 +419,11 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 },
   presenceRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.xs },
   presenceDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  factsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
+  fact: { flexDirection: 'row', alignItems: 'center' },
+  mutualRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
+  mutualAvatars: { flexDirection: 'row', alignItems: 'center' },
+  mutualAvatar: { borderWidth: 2, borderRadius: 15 },
   websiteRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
   stats: { flexDirection: 'row', marginTop: spacing.xl, paddingVertical: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
   stat: { flex: 1, alignItems: 'center' },

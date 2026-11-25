@@ -2,7 +2,7 @@
 
 Status legend: ✅ done & tested · 🧪 built, needs live verification · 🔑 blocked on credentials/config · ⏳ not built
 
-"Done & tested" for the database means every table, policy and RPC passed the SQL test-suite (`npm run db:test`, 10 suites, 105 tables with RLS)
+"Done & tested" for the database means every table, policy and RPC passed the SQL test-suite (`npm run db:test`, 13 suites, 110 tables with RLS)
 against a local PostgreSQL that mimics Supabase. "Needs live verification" means the UI and backend exist and typecheck, but could not be
 exercised end-to-end from the build sandbox (no device / camera / store, and the migrations are applied by the project owner).
 
@@ -10,8 +10,8 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| 12 migrations `supabase/migrations/20261125000001…0012` (foundation, social, messaging, calls, videos, economy, live, games, subscriptions, admin, LiveKit webhooks, hardening) | ✅ 0001–0011 applied on the live project · 0012 to run | combined hand-off file: `supabase/FRIENDZY_ALL_MIGRATIONS.sql` |
-| SQL tests `supabase/tests/0001…0012` + RLS-on-every-table check | ✅ | `npm run db:test` |
+| 13 migrations `supabase/migrations/20261125000001…0013` (foundation, social, messaging, calls, videos, economy, live, games, subscriptions, admin, LiveKit webhooks, hardening, friend discovery & matching) | ✅ 0001–0011 applied on the live project · 0012 + 0013 to run | combined hand-off file: `supabase/FRIENDZY_ALL_MIGRATIONS.sql` |
+| SQL tests `supabase/tests/0001…0013` + RLS-on-every-table check | ✅ | `npm run db:test` |
 | GitHub Actions (`ci.yml`: typecheck/lint/tests/SQL suite/web export · `supabase-deploy.yml`: migrations + functions) and Netlify build (`netlify.toml` + generated redirects, `404.html`) | 🧪 | first run happens after the repo is pushed; deploy workflow needs three repository secrets |
 | Edge Functions: `send-email`, `livekit-token`, `game-engine`, `revenuecat-webhook`, `push-dispatch`, `admin-actions`, `livekit-webhook` | 🧪 | deploy with `npm run functions:deploy`; secrets per `supabase/.env.example` |
 | LiveKit webhook: SDK signature verification, idempotent storage (`livekit_webhook_events`), live/call lifecycle sync, recordings (`livekit_egresses`) | ✅ handler + DB tested locally · 🔑 deploy pending approval | Jest covers request handling and real SDK verification; SQL suite covers side effects, retries, RLS |
@@ -34,7 +34,19 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | Feeds: For you / Following / Nearby / Trending; posts (text, photo, video, carousel, poll, question, share); comments & replies; reactions; reposts; saves; hide / not interested | 🧪 |
 | Stories (24 h, viewers, reactions, highlights, archive, privacy) | 🧪 |
 | Search (people, posts, hashtags, videos), trending topics (admin-pinned + organic) | 🧪 |
-| Random match, nearby (approximate location), interests-based suggestions | 🧪 |
+| Random match, nearby (approximate location), interests-based suggestions | 🧪 superseded by Phase 13 below |
+
+## Phase 13 — Friend discovery & social matching (worldwide)
+| Item | Status |
+| --- | --- |
+| Discover tab: 8 live sections (Recommended for you · Online now · Near you · New members · Popular · Share your interests · Other countries · Recently active) as rails + `/people/[section]` lists with infinite scroll; every card shows photo, name/@username, age (adults who opt in), country/city (per privacy), bio, interests (shared first), languages, online status / "Chatting now" (opt-in) / last seen, mutual friends, Add friend · Follow · Message | ✅ DB (`discover_people`, `discover_card_json`, SQL suite with 7 users incl. two minors) · 🧪 UI |
+| Advanced people search `/people/search`: username, full name, country, city, gender (voluntary), interests, languages, online now; sorting (best match / recently active / newest / popular / name); age range stays a Premium perk; minors and adults never see each other | ✅ DB (`search_people`) · 🧪 UI |
+| Friend system: send / accept / decline / cancel / remove / block, duplicate & blocked-pair prevention, auto-accept of crossing requests, incoming + sent pages with full cards, Friends page (`/friends`, search, online first, message, remove, block), mutual friends on profiles, friend request button in chat info, notifications on send/accept | ✅ DB · 🧪 UI |
+| MEET SOMEONE (`/match`): live two-sided matching queue (`match_find` / `match_queue` / `matches`, realtime + polling), preferences (countries, languages, gender, 18+ age range, shared interests) enforced symmetrically, suggestion fallback after ~10 s, searching animation, result with Start chatting / Send friend request / Find someone else, report & block; never starts a call; excludes blocked, recently skipped (7 d), recently matched (30 d), reported, restricted and heavily-reported accounts; adults only; leaving the screen leaves the queue | ✅ DB (SQL suite covers two accounts matching live, preferences, exclusions, notifications) · 🧪 UI (needs two live accounts) |
+| Presence: online / offline / last seen / activity ("Chatting now") with per-user toggles (show online status, last seen, "show what I'm doing" default off) | ✅ DB · 🧪 UI |
+| Profile details: languages (edit profile, max 6), join date, age toggle, city/languages/gender/country toggles, mutual friends strip | ✅ DB · 🧪 UI |
+| Notifications: `match_found` type + "Meet Someone matches" preference (in-app + `push-dispatch`) | ✅ DB · 🧪 push needs Database Webhook |
+| Admin → Discovery: searching-now / live matches / match actions / friend requests / blocks, heavy requesters, most blocked, reported via matching, heavy skippers (links to user management) | ✅ DB (`admin_discovery_abuse`) · 🧪 UI |
 
 ## Phase 3 — Messaging
 | Item | Status |
@@ -89,11 +101,11 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 - `npm run db:test` — all 10 suites pass, RLS enabled on 105 public tables.
 - `npm run typecheck` — passes.
 - `npm run lint` — passes (React Compiler advisories are reported as warnings; see eslint.config.js).
-- `npm test` — 33 unit tests pass.
+- `npm test` — 48 unit tests pass.
 - `npm run web:export` — static site builds.
 
 ## Open configuration items (owner action required)
-1. ~~Run the migrations~~ ✅ applied 2026-11-25 (0001–0011, verified via the public API). Still to do: run `supabase/migrations/20261125000012_hardening.sql` once, then the one-time `supabase migration repair --status applied …` from docs/SETUP.md §3 so `db push` never replays the files.
+1. ~~Run the migrations~~ ✅ applied 2026-11-25 (0001–0011, verified via the public API). Still to do: run `supabase/migrations/20261125000012_hardening.sql` and `supabase/migrations/20261125000013_discovery.sql` once (in that order), then the one-time `supabase migration repair --status applied …` from docs/SETUP.md §3 so `db push` never replays the files.
 1b. Push the repository to GitHub and connect it to Netlify (docs/SETUP.md §10); set the `EXPO_PUBLIC_*` variables in Netlify; put the Netlify URL into Supabase Auth; sign up; `select public.bootstrap_first_admin('you@example.com');`.
 2. Deploy Edge Functions and set secrets (`supabase/.env.example`) — locally with `npm run functions:deploy`, or add `SUPABASE_ACCESS_TOKEN` / `SUPABASE_PROJECT_ID` / `SUPABASE_DB_PASSWORD` to GitHub so `.github/workflows/supabase-deploy.yml` does it. Rotate the LiveKit API key pair that was shared in chat once the webhook is confirmed.
 2b. Register `https://gwdpsrjmfrgcloacvdlg.supabase.co/functions/v1/livekit-webhook` on the LiveKit project (after `supabase functions deploy livekit-webhook --no-verify-jwt`): `lk cloud auth --user-auth` then `lk project webhook create … --signing-key <LIVEKIT_API_KEY id> --user-auth`, or `npm run livekit:webhook:register`, or the dashboard. Then `npm run livekit:webhook:test` to confirm it is active. Registration needs a signed-in LiveKit user; the API key cannot do it.

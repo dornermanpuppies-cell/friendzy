@@ -6,6 +6,8 @@ begin
   alice := tests.create_user('alice@premium.test', '{"display_name":"Alice","username":"alice","birth_date":"1998-01-01"}');
   bob   := tests.create_user('bob@premium.test',   '{"display_name":"Bob","username":"bob","birth_date":"1997-01-01"}');
   carol := tests.create_user('carol@premium.test', '{"display_name":"Carol","username":"carol","birth_date":"1996-01-01"}');
+  perform tests.as_admin_db();
+  update public.profiles set onboarding_completed = true where id in (alice, bob, carol);
 
   -- Plans are public; status reads for the current user
   perform tests.as_anon();

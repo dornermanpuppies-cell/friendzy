@@ -161,10 +161,109 @@ export interface NearbyPerson {
   is_online: boolean | null;
 }
 
-export interface MatchCandidate {
-  profile: ProfileCard;
+export type PresenceActivity = 'chatting' | 'live' | 'gaming';
+
+export interface CardPresence {
+  /** null when the person hides their online status. */
+  is_online: boolean | null;
+  /** null when the person hides their last-seen time. */
+  last_seen_at: string | null;
+  /** Only present when the person opted in to sharing what they are doing. */
+  activity: PresenceActivity | null;
+}
+
+export interface CardRelationship {
+  is_following: boolean;
+  is_followed_by: boolean;
+  follow_requested: boolean;
+  is_friend: boolean;
+  is_blocking: boolean;
+  friend_request: { id: string; direction: 'incoming' | 'outgoing'; created_at: string } | null;
+}
+
+export interface CardInterest {
+  id: number;
+  name: string;
+  emoji: string | null;
+  /** True when the viewer shares this interest. */
+  shared: boolean;
+}
+
+/**
+ * Rich discovery profile returned by `discover_people`, `search_people`,
+ * `get_friends_list`, `get_mutual_friends`, `match_find` and `get_discover_card`.
+ * Every field already respects the owner's privacy settings (server-side).
+ */
+export interface DiscoverCard extends AuthorCard {
+  bio: string | null;
+  /** null when hidden by the owner. */
+  city: string | null;
+  /** Only present when the owner is an adult who chose to show their age. */
+  age: number | null;
+  /** Only present when the owner chose to show their gender. */
+  gender: string | null;
+  followers_count: number;
+  friends_count: number;
+  joined_at: string;
+  interests: CardInterest[];
   shared_interests: number;
-  interests: { id: number; name: string; emoji: string | null }[];
+  languages: string[];
+  shared_languages: number;
+  presence: CardPresence;
+  mutual_friends: number;
+  looking_for: string[];
+  relationship: CardRelationship;
+  /** Ranking score (recommended section only). */
+  score?: number;
+  /** Rounded distance in km (nearby section only). */
+  distance_km?: number | null;
+}
+
+export type DiscoverSection = 'recommended' | 'online' | 'nearby' | 'new' | 'popular' | 'interests' | 'countries' | 'active';
+
+export type PeopleSort = 'relevance' | 'newest' | 'popular' | 'active' | 'name';
+
+export interface PeopleSearchParams {
+  query?: string;
+  country?: string | null;
+  city?: string | null;
+  gender?: string | null;
+  interestIds?: number[];
+  languages?: string[];
+  onlineOnly?: boolean;
+  /** Premium-only filters. */
+  minAge?: number | null;
+  maxAge?: number | null;
+  sort?: PeopleSort;
+  limit?: number;
+  offset?: number;
+}
+
+export type MatchFindResult =
+  | { status: 'searching'; waited_seconds: number; searching_now: number }
+  | { status: 'matched'; live: true; match_id: string; candidate: DiscoverCard }
+  | { status: 'suggested'; live: false; match_id: null; candidate: DiscoverCard; waited_seconds: number }
+  | { status: 'empty'; live: false; waited_seconds: number };
+
+export type MatchActionKind = 'skip' | 'friend' | 'chat' | 'report' | 'block';
+
+export interface MatchActionResult {
+  friend_request_id?: string;
+  conversation_id?: string;
+  match_id?: string | null;
+}
+
+export interface FriendRequestCard {
+  id: string;
+  message: string | null;
+  created_at: string;
+  user: DiscoverCard;
+}
+
+export interface MatchCandidate {
+  profile: DiscoverCard;
+  shared_interests: number;
+  interests: CardInterest[];
   looking_for: string[];
 }
 

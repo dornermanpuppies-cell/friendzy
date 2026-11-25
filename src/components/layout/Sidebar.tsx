@@ -33,6 +33,7 @@ const PRIMARY: NavItem[] = [
   { href: '/inbox', label: 'Inbox', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles', badgeKey: 'inbox' },
   { href: '/calls', label: 'Calls', icon: 'call-outline', activeIcon: 'call' },
   { href: '/notifications', label: 'Notifications', icon: 'notifications-outline', activeIcon: 'notifications', badgeKey: 'notifications' },
+  { href: '/friends', label: 'Friends', icon: 'people-outline', activeIcon: 'people' },
   { href: '/requests', label: 'Requests', icon: 'person-add-outline', activeIcon: 'person-add', badgeKey: 'requests' },
   {
     href: '/profile',

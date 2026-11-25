@@ -16,6 +16,7 @@ export const ADMIN_SECTIONS: { href: string; label: string; icon: keyof typeof I
   { href: '/admin', label: 'Overview', icon: 'speedometer-outline' },
   { href: '/admin/users', label: 'Users', icon: 'people-outline' },
   { href: '/admin/reports', label: 'Reports', icon: 'flag-outline' },
+  { href: '/admin/discovery', label: 'Discovery', icon: 'shuffle-outline' },
   { href: '/admin/content', label: 'Content', icon: 'images-outline' },
   { href: '/admin/lives', label: 'Lives', icon: 'radio-outline' },
   { href: '/admin/finance', label: 'Finance', icon: 'cash-outline' },

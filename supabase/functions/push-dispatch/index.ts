@@ -25,6 +25,7 @@ type Card = { id: string; username: string; display_name: string; avatar_url: st
 const PREF_BY_TYPE: Record<string, string> = {
   new_follower: 'new_followers', follow_request: 'new_followers', follow_request_accepted: 'new_followers',
   friend_request: 'friend_requests', friend_request_accepted: 'friend_requests',
+  match_found: 'matches',
   post_like: 'likes', comment_like: 'likes', video_like: 'likes', story_reaction: 'likes',
   post_comment: 'comments', comment_reply: 'comments', video_comment: 'comments',
   mention: 'mentions', post_repost: 'reposts', video_repost: 'reposts',
@@ -44,6 +45,7 @@ function describe(n: NotificationRecord, actor: Card): { title: string; body: st
     case 'follow_request_accepted': return { title: name, body: 'accepted your follow request', url: profile };
     case 'friend_request': return { title: name, body: 'sent you a friend request', url: '/requests' };
     case 'friend_request_accepted': return { title: name, body: 'accepted your friend request', url: profile };
+    case 'match_found': return { title: 'Meet Someone', body: `${name} was matched with you — say hi!`, url: '/match' };
     case 'post_like': return { title: name, body: 'liked your post', url: n.entity_id ? `/post/${n.entity_id}` : null };
     case 'post_comment': return { title: name, body: `commented: ${String(d.preview ?? '')}`, url: d.post_id ? `/post/${d.post_id}` : null };
     case 'comment_reply': return { title: name, body: `replied: ${String(d.preview ?? '')}`, url: d.post_id ? `/post/${d.post_id}` : null };

@@ -92,6 +92,15 @@ export type UserSettingsRow = {
   preferred_min_age: number | null;
   preferred_max_age: number | null;
   accent: string;
+  /** Phase 13 — discovery privacy & Meet Someone preferences. */
+  show_age: boolean;
+  show_city: boolean;
+  show_languages: boolean;
+  show_activity: boolean;
+  match_countries: string[];
+  match_languages: string[];
+  match_genders: string[];
+  match_shared_interests: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -112,8 +121,15 @@ export type NotificationPreferencesRow = {
   gifts: boolean;
   subscription: boolean;
   security: boolean;
+  matches: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export type UserLanguageRow = {
+  user_id: string;
+  code: string;
+  created_at: string;
 }
 
 export type InterestRow = {
@@ -212,6 +228,8 @@ export type UserPresenceRow = {
   is_online: boolean;
   last_seen_at: string;
   updated_at: string;
+  activity: string | null;
+  activity_until: string | null;
 }
 
 export type AdminRoleRow = {
@@ -269,6 +287,8 @@ export type PresenceInfo = {
   user_id: string;
   is_online: boolean | null;
   last_seen_at: string | null;
+  /** 'chatting' | 'live' | 'gaming' — only when the person opted in. */
+  activity: string | null;
 }
 
 type Rel<FK extends string, Col extends string, Ref extends string = 'profiles'> = {
@@ -299,6 +319,7 @@ export type Database = {
       >;
       interests: Table<InterestRow, never, never>;
       user_interests: Table<UserInterestRow, { user_id: string; interest_id: number }, never>;
+      user_languages: Table<UserLanguageRow, { user_id: string; code: string }, never>;
       follows: Table<
         FollowRow,
         never,
@@ -357,7 +378,7 @@ export type Database = {
       block_user: { Args: { p_target: string }; Returns: undefined };
       unblock_user: { Args: { p_target: string }; Returns: undefined };
       get_relationship: { Args: { p_target: string }; Returns: Json };
-      touch_presence: { Args: { p_online?: boolean }; Returns: undefined };
+      touch_presence: { Args: { p_online?: boolean; p_activity?: string | null; p_set_activity?: boolean }; Returns: undefined };
       get_presence: { Args: { p_user_ids: string[] }; Returns: PresenceInfo[] };
       get_suggested_profiles: { Args: { p_limit?: number }; Returns: ProfileCard[] };
       search_profiles: {
@@ -689,6 +710,22 @@ export type Database = {
       admin_list_admins: { Args: Record<string, never>; Returns: Json };
       admin_grant_role: { Args: { p_user: string; p_role: string }; Returns: undefined };
       admin_revoke_role: { Args: { p_user: string }; Returns: undefined };
+      // ---- Phase 13: friend discovery & matching ----
+      get_discover_card: { Args: { p_user: string }; Returns: Json };
+      discover_people: { Args: { p_section?: string; p_limit?: number; p_offset?: number; p_radius_km?: number }; Returns: Json };
+      search_people: {
+        Args: {
+          p_query?: string; p_country?: string | null; p_city?: string | null; p_gender?: string | null; p_interest_ids?: number[] | null; p_languages?: string[] | null;
+          p_online_only?: boolean; p_min_age?: number | null; p_max_age?: number | null; p_sort?: string; p_limit?: number; p_offset?: number;
+        };
+        Returns: Json;
+      };
+      get_mutual_friends: { Args: { p_user: string; p_limit?: number }; Returns: Json };
+      get_friends_list: { Args: { p_user?: string | null; p_query?: string; p_limit?: number; p_offset?: number }; Returns: Json };
+      get_friend_requests: { Args: { p_direction?: string; p_limit?: number }; Returns: Json };
+      match_find: { Args: Record<string, never>; Returns: Json };
+      match_leave: { Args: Record<string, never>; Returns: undefined };
+      admin_discovery_abuse: { Args: { p_hours?: number }; Returns: Json };
     };
     Enums: {
       gender_type: GenderType;

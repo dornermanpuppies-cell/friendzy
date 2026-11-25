@@ -15,6 +15,7 @@ import { Sheet } from '@/components/ui/Sheet';
 import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
 import { WALLPAPERS } from '@/features/chat/wallpapers';
+import { FriendButton } from '@/features/discover/FriendButton';
 import { confirmAction } from '@/features/feed/usePostActions';
 import { ProfileRow } from '@/features/profile/ProfileRow';
 import { ReportSheet } from '@/features/profile/ReportSheet';
@@ -23,6 +24,7 @@ import { env } from '@/lib/env';
 import { pickImage, uploadProfileImage } from '@/services/media';
 import { addMembers, clearConversation, fetchConversation, getJoinRequests, leaveConversation, removeMember, respondJoinRequest, rotateInviteLink, setConversationSettings, setDisappearing, setMemberRole, updateGroup } from '@/services/messaging';
 import { searchProfiles } from '@/services/profiles';
+import { getRelationship } from '@/services/relationships';
 import { blockUser } from '@/services/safety';
 import { useAuth } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
@@ -60,6 +62,8 @@ export default function ConversationInfoScreen() {
   const [requestsOpen, setRequestsOpen] = useState(false);
   const search = useAsync(() => (query.trim() ? searchProfiles({ query: query.trim(), limit: 20 }) : Promise.resolve([])), [query], { enabled: addOpen });
   const requests = useAsync(() => (c?.is_admin ? getJoinRequests(conversationId) : Promise.resolve([])), [conversationId, requestsOpen, c?.is_admin]);
+  const otherId = detail.data?.kind === 'direct' ? detail.data.other_user?.id : undefined;
+  const relationship = useAsync(() => (otherId ? getRelationship(otherId) : Promise.resolve(null)), [otherId]);
 
   const run = async (fn: () => Promise<unknown>, success?: string) => {
     try {
@@ -115,6 +119,9 @@ export default function ConversationInfoScreen() {
         ) : null}
         <View style={styles.heroActions}>
           {!isGroup && other ? <Button title="View profile" variant="secondary" size="sm" leftIcon="person-outline" onPress={() => router.navigate(`/u/${other.username}` as never)} /> : null}
+          {!isGroup && other && relationship.data && !relationship.data.is_blocking && !relationship.data.is_blocked_by ? (
+            <FriendButton targetId={other.id} displayName={other.display_name} state={{ is_friend: relationship.data.is_friend, friend_request: relationship.data.friend_request }} size="sm" onChange={() => void relationship.refresh()} />
+          ) : null}
           {isGroup && c.is_admin ? <Button title="Edit" variant="secondary" size="sm" leftIcon="create-outline" onPress={() => { setTitle(c.title ?? ''); setDescription(c.description ?? ''); setEditOpen(true); }} /> : null}
           <Button title="Media" variant="secondary" size="sm" leftIcon="images-outline" onPress={() => router.navigate(`/chat/${conversationId}/media` as never)} />
           <Button title="Search" variant="secondary" size="sm" leftIcon="search-outline" onPress={() => router.navigate(`/chat/${conversationId}/search` as never)} />

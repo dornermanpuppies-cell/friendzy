@@ -21,6 +21,30 @@ export interface Sanction {
   created_by_user?: AuthorCard | null;
 }
 
+export interface AdminDiscoveryPerson extends AuthorCard {
+  sent?: number;
+  declined?: number;
+  blocks?: number;
+  reports?: number;
+  actions?: number;
+}
+
+export interface AdminDiscoveryAbuse {
+  since: string;
+  stats: {
+    searching_now: number;
+    live_matches: number;
+    match_actions: Record<string, number>;
+    friend_requests: number;
+    friend_requests_declined: number;
+    blocks: number;
+  };
+  top_requesters: AdminDiscoveryPerson[];
+  most_blocked: AdminDiscoveryPerson[];
+  match_reported: AdminDiscoveryPerson[];
+  heavy_skippers: AdminDiscoveryPerson[];
+}
+
 export interface AdminUser extends ProfileRow {
   email: string | null;
   birth_date: string | null;

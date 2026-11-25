@@ -14,12 +14,13 @@ import { FollowButton } from '@/features/profile/FollowButton';
 import { LiveHistoryTab, ReelsTab } from '@/features/profile/ProfileMediaTabs';
 import { ProfileView } from '@/features/profile/ProfileView';
 import { useAsync } from '@/hooks/useAsync';
+import { getDiscoverCard } from '@/services/discovery';
 import { getUserInterests } from '@/services/interests';
 import { startDirectConversation } from '@/services/messaging';
 import { recordProfileView } from '@/services/premium';
 import { getPresence } from '@/services/presence';
 import { getProfileByUsername } from '@/services/profiles';
-import { cancelFriendRequest, getRelationship, respondFriendRequest, sendFriendRequest, unfriend, type FollowState } from '@/services/relationships';
+import { cancelFriendRequest, getMutualFriends, getRelationship, respondFriendRequest, sendFriendRequest, unfriend, type FollowState } from '@/services/relationships';
 import { blockUser, unblockUser } from '@/services/safety';
 import { useAuth } from '@/store/authStore';
 import { spacing } from '@/theme/tokens';
@@ -50,6 +51,9 @@ export default function PublicProfileScreen() {
   const relationship = useAsync<Relationship | null>(() => (targetId ? getRelationship(targetId) : Promise.resolve(null)), [targetId]);
   const interests = useAsync(() => (targetId ? getUserInterests(targetId) : Promise.resolve([])), [targetId]);
   const presence = useAsync(async () => (targetId ? ((await getPresence([targetId])).get(targetId) ?? null) : null), [targetId]);
+  // Languages, age and mutual friends — each already filtered by the owner's privacy settings.
+  const card = useAsync(() => (targetId ? getDiscoverCard(targetId) : Promise.resolve(null)), [targetId]);
+  const mutual = useAsync(() => (targetId && targetId !== user?.id ? getMutualFriends(targetId, 6) : Promise.resolve([])), [targetId, user?.id]);
   const [giftOpen, setGiftOpen] = useState(false);
 
   useEffect(() => {
@@ -159,11 +163,14 @@ export default function PublicProfileScreen() {
   );
 
   return (
-    <Screen scroll padded={false} maxWidth={false} edges={['left', 'right']} refreshing={profile.refreshing} onRefresh={() => Promise.all([profile.refresh(), relationship.refresh(), presence.refresh()])}>
+    <Screen scroll padded={false} maxWidth={false} edges={['left', 'right']} refreshing={profile.refreshing} onRefresh={() => Promise.all([profile.refresh(), relationship.refresh(), presence.refresh(), card.refresh(), mutual.refresh()])}>
       <ProfileView
         profile={p}
         isOwner={false}
         interests={interests.data ?? []}
+        languages={card.data?.languages ?? []}
+        age={card.data?.age ?? null}
+        mutualFriends={mutual.data ?? []}
         presence={presence.data}
         actions={user ? actions : undefined}
         isBlocking={rel?.is_blocking}

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { FollowRequestRow, FriendRequestRow, ProfileCard, Relationship } from '@/types/database';
+import type { DiscoverCard, FriendRequestCard } from '@/types/social';
 
 import { getProfilesByIds } from './profiles';
 
@@ -103,6 +104,36 @@ async function attachProfiles<T>(rows: T[], pick: (row: T) => string): Promise<(
   const profiles = await getProfilesByIds(ids);
   const byId = new Map(profiles.map((p) => [p.id, p]));
   return rows.map((row) => ({ ...row, profile: byId.get(pick(row)) ?? null }));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 13 — discovery cards for friends & requests
+// ---------------------------------------------------------------------------
+
+/** Friends I share with `userId` (empty when their friend list is private). */
+export async function getMutualFriends(userId: string, limit = 20): Promise<DiscoverCard[]> {
+  const { data, error } = await supabase.rpc('get_mutual_friends', { p_user: userId, p_limit: limit });
+  if (error) throw error;
+  return (data ?? []) as unknown as DiscoverCard[];
+}
+
+/** Friends list (mine by default) with search; online friends first. */
+export async function getFriendsList(params: { userId?: string | null; query?: string; limit?: number; offset?: number } = {}): Promise<DiscoverCard[]> {
+  const { data, error } = await supabase.rpc('get_friends_list', {
+    p_user: params.userId ?? null,
+    p_query: params.query ?? '',
+    p_limit: params.limit ?? 30,
+    p_offset: params.offset ?? 0,
+  });
+  if (error) throw error;
+  return (data ?? []) as unknown as DiscoverCard[];
+}
+
+/** Pending friend requests with full discovery cards (mutual friends, shared interests…). */
+export async function getFriendRequests(direction: 'incoming' | 'outgoing' = 'incoming', limit = 50): Promise<FriendRequestCard[]> {
+  const { data, error } = await supabase.rpc('get_friend_requests', { p_direction: direction, p_limit: limit });
+  if (error) throw error;
+  return (data ?? []) as unknown as FriendRequestCard[];
 }
 
 export async function countPendingRequests(myUserId: string): Promise<number> {

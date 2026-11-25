@@ -180,8 +180,8 @@ One-time setup:
 1. **GitHub → Settings → Secrets and variables → Actions → Variables → New repository variable:**
    `EXPO_PUBLIC_SUPABASE_ANON_KEY` = the same anon key as in Netlify. (The Supabase URL, LiveKit URL and site URL default to the
    Friendzy values; override them with variables of the same names if they change. `EXPO_PUBLIC_WEB_HOST` enables Android App
-   Links once a custom domain exists.) The workflow runs the same preflight as the website build and stops with a clear message
-   if the key is missing or rejected.
+   Links once a custom domain exists.) Until the variable exists the workflow ends green with a "setup needed" notice and builds
+   nothing; once it exists, the same preflight as the website build rejects a wrong or truncated key with a clear message.
 2. **Make the download public.** Release files inherit the repository's visibility, so visitors can only download from a
    **public** repository: Settings → General → Danger Zone → Change visibility → Public. The repository contains no secrets (the
    preflight refuses to bundle any, and server secrets live in Supabase). If you prefer to keep it private, download the APK from

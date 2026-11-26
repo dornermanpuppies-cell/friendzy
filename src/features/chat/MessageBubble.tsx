@@ -272,9 +272,12 @@ function MessageBubbleInner({ message, isGroup, showSender, wallpaper, lightWall
 
   const isMedia = (message.kind === 'image' || message.kind === 'video') && !message.text;
 
+  // touchAction is web-only: without it the gesture library sets `touch-action: none` on every message row,
+  // so a finger drag that starts on a bubble cannot scroll the chat in a mobile browser. `pan-y` keeps the
+  // vertical scroll with the browser and leaves the horizontal swipe-to-reply to the gesture.
   return (
-    <GestureDetector gesture={pan}>
-      <Animated.View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs, animated]}>
+    <GestureDetector gesture={pan} touchAction="pan-y">
+      <Animated.View testID={`message:${message.id}`} style={[styles.row, mine ? styles.rowMine : styles.rowTheirs, animated]}>
         <Animated.View style={[styles.replyHint, replyHint]} pointerEvents="none">
           <Ionicons name="arrow-undo" size={18} color={lightWallpaper ? palette.ink3 : 'rgba(255,255,255,0.8)'} />
         </Animated.View>

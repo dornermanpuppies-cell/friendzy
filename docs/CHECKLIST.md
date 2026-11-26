@@ -114,10 +114,13 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 - `npm test` — 116 unit tests pass (12 suites, incl. 19 game-engine rule tests).
 - `npx expo export --platform web` + `scripts/netlify-redirects.mjs` — static site builds, `public/_redirects` in sync.
 - `npm run qa:hydration` — no React hydration errors on `/`, `/sign-in`, `/about`, `/download`, `/features`, `/help`, `/privacy`.
+- `npm run qa:scroll-audit` — 16/16 main screens scroll cleanly (scroll container present, nothing blocking
+  touch panning, page does not scroll behind the tab bar).
 - `npm run qa:e2e` (two real accounts in two browsers against the exported site): notifications bell, post → like →
   comment → notification → deep link, follow + friend request + accept, story compose/view/react, search, push status card,
   end-to-end encrypted chat, voice call (LiveKit), trivia, chess (+ leaderboard), ludo, truth or dare, would you rather,
-  Guess-the-Song availability notice, and a 44-route smoke pass — see `qa-artifacts/report.json` of the last run.
+  Guess-the-Song availability notice, chat history scrolling (46-message thread: one page renders, older
+  messages load on scroll up) and inbox list scrolling, and a 45-route smoke pass — see `qa-artifacts/report.json` of the last run.
 - Live push pipeline: `request_test_notification()` → pg_net → `push-dispatch` v16 answered `200 {"ok":true,…}`; a
   fake browser subscription was marked failed and the fake phone token handled as "not registered".
 

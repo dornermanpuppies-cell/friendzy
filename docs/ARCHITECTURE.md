@@ -87,6 +87,13 @@ until 2026-11-26). The app treats a `STALE` reply as "refresh the board", never 
 in the browser must go through `useHydrated()` (`src/hooks/useHydrated.ts`); the app-wide `Ionicons` wrapper
 (`src/components/ui/Ionicons.tsx`) does this because the icon font is not available during pre-rendering.
 `npm run qa:hydration -- /about /download` diffs the server HTML against the browser DOM when a React #418 shows up.
+
+**Scrolling inside gesture rows.** A `GestureDetector` sets `touch-action: none` on its view by default,
+which stops a finger drag that starts on that view from scrolling the list around it in a mobile browser.
+Any gesture placed inside a scrollable list must pass the axis it does not own — message rows use
+`touchAction="pan-y"` so the browser keeps vertical scrolling and the gesture keeps the horizontal
+swipe-to-reply. `npm run qa:scroll-audit` walks the main screens and fails when a list has no scroll
+container, when something inside it blocks touch panning, or when the page scrolls behind the fixed chrome.
 Engines are pure TypeScript shared with the app (`supabase/functions/_shared/games`); answer keys live under `state.secret`, which
 `game_room_json` strips before it reaches clients. Results, ratings and leaderboards are written by `apply_game_results` (service role).
 

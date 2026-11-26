@@ -39,7 +39,7 @@ function loadEnvLocal() {
 loadEnvLocal();
 
 const args = process.argv.slice(2);
-const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,social,story,search,push,chat,call,games,smoke').split(',');
+const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,social,story,search,push,chat,scroll,call,games,smoke').split(',');
 const headed = args.includes('--headed');
 const BASE = (process.env.QA_BASE_URL ?? 'http://127.0.0.1:4173').replace(/\/$/, '');
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -264,6 +264,142 @@ async function chatScenario(alice, bob, conversationId) {
   await alice.waitForText(reply, 30_000);
   await alice.shot('inbox');
   return { sent: text, reply };
+}
+
+/** Page size of the message list in src/store/chatStore.ts — older messages load when you reach the top. */
+const MESSAGE_PAGE = 40;
+
+/** The DOM element that actually scrolls a list, plus its measurements. */
+const SCROLLER_PROBE = `(() => {
+  const all = Array.from(document.querySelectorAll('div'));
+  const scrollers = all
+    .filter((e) => { const s = getComputedStyle(e); return (s.overflowY === 'auto' || s.overflowY === 'scroll'); })
+    .map((e) => ({ el: e, over: e.scrollHeight - e.clientHeight, h: e.clientHeight }))
+    .filter((x) => x.h > 120)
+    .sort((a, b) => b.over - a.over);
+  const best = scrollers[0];
+  if (!best) return null;
+  window.__fzScroller = best.el;
+  return { scrollHeight: best.el.scrollHeight, clientHeight: best.el.clientHeight, scrollTop: Math.round(best.el.scrollTop), overflow: best.over, count: scrollers.length };
+})()`;
+
+/**
+ * Scrolling through a conversation: the history must scroll with the wheel and with a finger, and
+ * reaching the top must load older messages. Grows the thread past one page first, because a chat
+ * that fits on screen proves nothing. Regression guard: the swipe-to-reply gesture used to put
+ * `touch-action: none` on every message row, which stopped touch scrolling in mobile browsers.
+ */
+async function chatScrollScenario(alice, bob, conversationId) {
+  const stamp = Date.now().toString(36);
+  const marker = (n) => `scroll ${stamp} #${String(n).padStart(3, '0')}`;
+  const renderedCount = () => alice.page.locator('[data-testid^="message:"]').count();
+
+  await alice.goto(`/chat/${conversationId}`);
+  const box = alice.page.locator('input[placeholder="Message"], textarea[placeholder="Message"]').first();
+  await box.waitFor({ state: 'visible', timeout: 60_000 });
+  await sleep(1500);
+
+  // The thread has to be longer than one page, otherwise "scrolling to older messages" proves nothing.
+  const stored = await rpc(alice.session, 'get_messages', { p_conversation: conversationId, p_limit: 100, p_before: null, p_after: null });
+  const toSend = Math.max(3, MESSAGE_PAGE + 6 - stored.length);
+  for (let i = 1; i <= toSend; i += 1) {
+    await box.fill(marker(i));
+    await alice.clickLabel('Send');
+    await sleep(120);
+  }
+  await alice.waitForText(marker(toSend), 60_000);
+  const after = await rpc(alice.session, 'get_messages', { p_conversation: conversationId, p_limit: 100, p_before: null, p_after: null });
+  if (after.length <= MESSAGE_PAGE) throw new Error(`thread holds only ${after.length} messages; need more than one page of ${MESSAGE_PAGE}`);
+
+  // Fresh open: one page renders, the rest waits further up.
+  await alice.goto(`/chat/${conversationId}`);
+  await alice.waitForText(marker(toSend), 60_000);
+  await sleep(1500);
+  const firstPage = await renderedCount();
+  if (firstPage === 0) throw new Error('no message rows rendered');
+  if (firstPage >= after.length) throw new Error(`the whole thread rendered at once (${firstPage} rows) — cannot prove older messages load on scroll`);
+
+  const before = await alice.page.evaluate(SCROLLER_PROBE);
+  if (!before) throw new Error('no scrollable element found on the chat screen');
+  if (before.overflow < 40) throw new Error(`the message list does not overflow its box (${JSON.stringify(before)}), so it cannot scroll`);
+
+  // A finger drag that starts on a message must scroll the list: no ancestor may disable touch panning.
+  const touch = await alice.page.evaluate(() => {
+    const row = document.querySelector('[data-testid^="message:"]');
+    if (!row) return null;
+    const chain = [];
+    for (let e = row; e && chain.length < 10; e = e.parentElement) chain.push(getComputedStyle(e).touchAction);
+    return chain;
+  });
+  if (!touch) throw new Error('could not find a message row in the DOM');
+  if (touch.includes('none')) throw new Error(`a message row disables touch scrolling (touch-action chain: ${touch.join(' → ')})`);
+
+  // The wheel moves the list.
+  const listBox = await alice.page.evaluate(() => { const r = window.__fzScroller.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
+  await alice.page.mouse.move(listBox.x, listBox.y);
+  await alice.page.mouse.wheel(0, -500);
+  await sleep(600);
+  const afterWheel = await alice.page.evaluate(() => Math.round(window.__fzScroller.scrollTop));
+  if (afterWheel === before.scrollTop) throw new Error(`the wheel did not scroll the message list (scrollTop stayed at ${afterWheel})`);
+
+  // Keep going to the older end until more messages have loaded.
+  let grown = firstPage;
+  for (let i = 0; i < 10 && grown <= firstPage; i += 1) {
+    await alice.page.evaluate(() => { const el = window.__fzScroller; el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll', { bubbles: true })); });
+    await sleep(1400);
+    grown = await renderedCount();
+  }
+  if (grown <= firstPage) throw new Error(`scrolling to the top loaded no older messages (still ${grown} rows)`);
+
+  // Back down to the live end of the chat.
+  await alice.page.evaluate(() => { window.__fzScroller.scrollTop = 0; });
+  await sleep(800);
+  await alice.waitForText(marker(toSend), 15_000);
+  return { sent: toSend, storedInThread: after.length, renderedOnOpen: firstPage, renderedAfterScrollUp: grown, listHeight: before.clientHeight, contentHeight: before.scrollHeight, touchAction: touch[0] };
+}
+
+/**
+ * Scrolling the inbox list. One conversation cannot overflow a phone screen, so the check creates a
+ * few group chats, shrinks the window, and verifies the list scrolls (and that the page itself does
+ * not scroll behind it, which would hide rows under the tab bar).
+ */
+async function inboxScrollScenario(alice, bob) {
+  const stamp = Date.now().toString(36);
+  const created = [];
+  try {
+    for (let i = 1; i <= 5; i += 1) {
+      const id = await rpc(alice.session, 'create_group', { p_title: `QA scroll group ${stamp} ${i}`, p_member_ids: [bob.userId], p_description: null, p_avatar_url: null });
+      created.push(typeof id === 'string' ? id : id?.id);
+    }
+    await alice.page.setViewportSize({ width: 414, height: 520 });
+    await alice.goto('/inbox');
+    await alice.waitForText(`QA scroll group ${stamp} 5`, 45_000);
+    await sleep(1200);
+    const probe = await alice.page.evaluate(SCROLLER_PROBE);
+    if (!probe) throw new Error('no scrollable element found on the inbox screen');
+    if (probe.overflow < 40) throw new Error(`the inbox list does not overflow its box (${JSON.stringify(probe)})`);
+    const pageScrolls = await alice.page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 4);
+    if (pageScrolls) throw new Error('the whole page scrolls instead of the list — rows end up under the tab bar');
+    await alice.page.mouse.move(200, 300);
+    await alice.page.mouse.wheel(0, 400);
+    await sleep(600);
+    const moved = await alice.page.evaluate(() => Math.round(window.__fzScroller.scrollTop));
+    if (moved <= 0) throw new Error(`the wheel did not scroll the inbox list (scrollTop ${moved})`);
+    const touch = await alice.page.evaluate(() => {
+      const chain = [];
+      for (let e = window.__fzScroller; e && chain.length < 6; e = e.parentElement) chain.push(getComputedStyle(e).touchAction);
+      return chain;
+    });
+    if (touch.includes('none')) throw new Error(`the inbox list disables touch scrolling (${touch.join(' → ')})`);
+    return { groupsCreated: created.length, listHeight: probe.clientHeight, contentHeight: probe.scrollHeight, scrolledTo: moved };
+  } finally {
+    await alice.page.setViewportSize({ width: 414, height: 860 });
+    for (const id of created) {
+      if (!id) continue;
+      await rpc(bob.session, 'leave_conversation', { p_conversation: id }).catch(() => undefined);
+      await rpc(alice.session, 'leave_conversation', { p_conversation: id }).catch(() => undefined);
+    }
+  }
 }
 
 async function callScenario(alice, bob, conversationId) {
@@ -721,7 +857,7 @@ try {
     for (const room of lobby?.mine ?? []) await rpc(actor.session, 'leave_game_room', { p_room: room.id }).catch(() => undefined);
   }
   let conversationId = null;
-  if (only.includes('chat') || only.includes('call')) {
+  if (only.includes('chat') || only.includes('call') || only.includes('scroll')) {
     conversationId = await rpc(alice.session, 'start_direct_conversation', { p_user: bob.userId });
     log('conversation', conversationId);
     const active = await rpc(alice.session, 'get_active_call', { p_conversation: conversationId }).catch(() => null);
@@ -734,6 +870,8 @@ try {
   if (only.includes('search')) await scenario('Search finds people and opens the profile', () => searchScenario(alice));
   if (only.includes('push')) await scenario('Push status card: shows state, enables, sends a test', () => pushSettingsScenario(alice));
   if (only.includes('chat')) await scenario('End-to-end encrypted chat between two accounts', () => chatScenario(alice, bob, conversationId));
+  if (only.includes('scroll')) await scenario('Chat history scrolls and loads older messages', () => chatScrollScenario(alice, bob, conversationId));
+  if (only.includes('scroll')) await scenario('Inbox list scrolls', () => inboxScrollScenario(alice, bob));
   if (only.includes('call')) await scenario('Voice call rings, connects on both sides and ends cleanly', () => callScenario(alice, bob, conversationId));
   const wants = (key) => only.includes(key) || only.includes('games');
   if (wants('trivia')) await scenario('Trivia room: start, answer, reveal, next round, results', () => triviaScenario(alice, bob));

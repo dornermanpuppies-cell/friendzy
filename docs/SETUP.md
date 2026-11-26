@@ -196,8 +196,8 @@ One-time setup:
    **public** repository: Settings → General → Danger Zone → Change visibility → Public. The repository contains no secrets (the
    preflight refuses to bundle any, and server secrets live in Supabase). If you prefer to keep it private, download the APK from
    the release page yourself, upload it to any public host and set `EXPO_PUBLIC_ANDROID_APK_URL` in Netlify instead.
-3. **Signing key (recommended before handing the app to many people).** Without it the APK is signed with the public debug
-   keystore: it installs and updates fine, but anyone could sign an APK with that key. Create your own once (needs Java):
+3. **Signing key** — ✅ done for the live repository on 2026-11-26 (the four secrets exist; keep `.env.android-signing` safe, it is the
+   only copy of the keystore). For a fresh fork, create your own once (needs Java):
    ```bash
    keytool -genkeypair -v -keystore friendzy-upload.keystore -alias friendzy -keyalg RSA -keysize 2048 -validity 10000
    base64 -w0 friendzy-upload.keystore > friendzy-upload.keystore.b64    # macOS: base64 -i friendzy-upload.keystore

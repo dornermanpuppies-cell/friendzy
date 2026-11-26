@@ -39,7 +39,7 @@ function loadEnvLocal() {
 loadEnvLocal();
 
 const args = process.argv.slice(2);
-const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,social,story,search,push,chat,scroll,call,games,smoke').split(',');
+const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,social,story,search,push,chat,scroll,call,live,games,smoke').split(',');
 const headed = args.includes('--headed');
 const BASE = (process.env.QA_BASE_URL ?? 'http://127.0.0.1:4173').replace(/\/$/, '');
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -402,6 +402,97 @@ async function inboxScrollScenario(alice, bob) {
   }
 }
 
+/**
+ * A broadcast end to end: the host goes live, a viewer joins and comments, likes move the goal bar,
+ * a gift lands and puts the sender on the supporter ranking, and a question goes on screen.
+ */
+async function liveScenario(alice, bob) {
+  const stamp = Date.now().toString(36);
+  const title = `QA live ${stamp}`;
+
+  // Clear anything a previous run left running.
+  for (const actor of [alice, bob]) {
+    const mine = await rpc(actor.session, 'get_my_lives', { p_limit: 5 }).catch(() => []);
+    for (const l of mine ?? []) if (l.status === 'live' || l.status === 'preparing') await rpc(actor.session, 'end_live', { p_id: l.id }).catch(() => undefined);
+  }
+
+  // Host: create and start through the UI.
+  await alice.goto('/live/go');
+  await alice.page.locator('textarea[placeholder="What\'s your live about?"], input[placeholder="What\'s your live about?"]').first().fill(title);
+  await alice.clickText('Continue to preview');
+  await alice.page.waitForURL(/\/live\/[0-9a-f-]{36}/, { timeout: 60_000 });
+  const liveId = alice.path().split('/live/')[1];
+  if (!liveId || liveId === 'go') throw new Error(`live was not created (at ${alice.path()})`);
+  log('live id', liveId);
+  await alice.clickText('Start LIVE', { timeout: 45_000 });
+  await alice.page.locator('[aria-label="Viewers"]').first().waitFor({ state: 'visible', timeout: 45_000 });
+
+  // Viewer joins and the host sees the count.
+  await bob.goto(`/live/${liveId}`);
+  await bob.page.locator('[aria-label="Gift"]').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await sleep(2000);
+
+  // Comment from the viewer reaches the room.
+  const comment = `hello from the harness ${stamp}`;
+  await bob.page.locator('input[placeholder="Say something…"], textarea[placeholder="Say something…"]').first().fill(comment);
+  await bob.clickLabel('Send comment');
+  await alice.waitForText(comment, 30_000);
+
+  // Host sets a like goal; the viewer's likes fill the bar.
+  await rpc(alice.session, 'set_live_goal', { p_live: liveId, p_kind: 'likes', p_target: 5, p_label: 'Harness goal' });
+  await bob.page.reload();
+  await bob.page.locator('[aria-label="Gift"]').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await bob.waitForText('Harness goal', 30_000);
+  for (let i = 0; i < 6; i += 1) {
+    await bob.clickLabel('heart', 5_000).catch(() => undefined);
+    await rpc(bob.session, 'like_live', { p_id: liveId, p_count: 1 }).catch(() => undefined);
+    await sleep(200);
+  }
+  const afterLikes = await waitFor(async () => {
+    const live = await rpc(bob.session, 'get_live', { p_id: liveId });
+    return live?.goal?.status === 'reached' ? live : null;
+  }, 15_000);
+  if (!afterLikes) throw new Error('the like goal never completed');
+
+  // A gift lands and the sender appears on the supporter ranking.
+  const gift = await rpc(bob.session, 'send_live_gift', { p_live: liveId, p_gift_id: 3, p_quantity: 2, p_recipient: null, p_message: null });
+  if (!gift?.gift) throw new Error(`gift was not accepted: ${JSON.stringify(gift).slice(0, 160)}`);
+  const supporters = await waitFor(async () => {
+    const list = await rpc(bob.session, 'get_live_top_supporters', { p_live: liveId, p_limit: 10 });
+    return (list ?? []).length > 0 ? list : null;
+  }, 15_000);
+  if (!supporters || supporters[0].user.id !== bob.userId) throw new Error(`supporter ranking wrong: ${JSON.stringify(supporters).slice(0, 200)}`);
+
+  // Q&A: the viewer asks, the host puts it on screen, both see it.
+  const question = `What is your setup ${stamp}?`;
+  await rpc(bob.session, 'ask_live_question', { p_live: liveId, p_text: question });
+  const open = await rpc(alice.session, 'get_live_questions', { p_live: liveId, p_status: 'open', p_limit: 10 });
+  if (!open?.length) throw new Error('the question did not reach the host');
+  await rpc(alice.session, 'set_live_question', { p_question: open[0].id, p_status: 'featured' });
+  await bob.page.reload();
+  await bob.waitForText(question, 45_000);
+  await alice.page.reload();
+  await alice.waitForText(question, 45_000);
+
+  // Blocked words keep a comment out of the room.
+  await rpc(alice.session, 'set_live_comment_filter', { p_word: `blocked${stamp}`, p_on: true });
+  const blocked = await rpc(bob.session, 'send_live_comment', { p_live: liveId, p_text: `this says blocked${stamp}` }).catch((e) => ({ error: String(e) }));
+  if (!blocked?.error) throw new Error('a comment with a blocked word was accepted');
+  await rpc(alice.session, 'set_live_comment_filter', { p_word: `blocked${stamp}`, p_on: false });
+
+  const final = await rpc(bob.session, 'get_live', { p_id: liveId });
+  await rpc(alice.session, 'end_live', { p_id: liveId });
+  return {
+    liveId,
+    viewers: final.viewers_count,
+    likes: final.likes_count,
+    goal: `${final.goal?.progress ?? 0}/${final.goal?.target ?? 0} ${final.goal?.status ?? 'none'}`,
+    topSupporterCoins: supporters[0].coins,
+    featuredQuestion: Boolean(final.featured_question),
+    blockedWordRejected: true,
+  };
+}
+
 async function callScenario(alice, bob, conversationId) {
   await bob.goto('/home');
   await bob.page.locator('[aria-label="Notifications"]').first().waitFor({ state: 'visible', timeout: 45_000 });
@@ -665,6 +756,17 @@ async function guessTheSongScenario(alice) {
 // ---------------------------------------------------------------------------
 // Social loop: post → like → comment → notifications; follow + friend request; story; search
 // ---------------------------------------------------------------------------
+/** Polls until the callback returns something truthy, or the timeout passes. */
+async function waitFor(fn, timeout = 10_000, step = 700) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    const value = await fn().catch(() => null);
+    if (value) return value;
+    await sleep(step);
+  }
+  return null;
+}
+
 async function rest(session, pathAndQuery) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${pathAndQuery}`, { headers: { apikey: ANON, Authorization: `Bearer ${session.access_token}` } });
   if (!res.ok) throw new Error(`GET ${pathAndQuery} → ${res.status} ${await res.text()}`);
@@ -873,6 +975,7 @@ try {
   if (only.includes('scroll')) await scenario('Chat history scrolls and loads older messages', () => chatScrollScenario(alice, bob, conversationId));
   if (only.includes('scroll')) await scenario('Inbox list scrolls', () => inboxScrollScenario(alice, bob));
   if (only.includes('call')) await scenario('Voice call rings, connects on both sides and ends cleanly', () => callScenario(alice, bob, conversationId));
+  if (only.includes('live')) await scenario('LIVE: broadcast, comments, goal, gift ranking, Q&A, blocked words', () => liveScenario(alice, bob));
   const wants = (key) => only.includes(key) || only.includes('games');
   if (wants('trivia')) await scenario('Trivia room: start, answer, reveal, next round, results', () => triviaScenario(alice, bob));
   if (wants('chess')) await scenario('Chess room: legal moves, resign, winner recorded', () => chessScenario(alice, bob));

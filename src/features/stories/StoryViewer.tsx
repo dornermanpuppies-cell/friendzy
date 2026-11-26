@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { useEvent } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/ui/Avatar';
@@ -22,6 +22,7 @@ import { absoluteFillObject, fontFamily, palette, radius, spacing } from '@/them
 import type { StoryCard } from '@/types/social';
 import { getErrorMessage } from '@/utils/errors';
 import { timeAgo } from '@/utils/format';
+import { useViewportSize } from '@/hooks/useViewportSize';
 
 import { confirmAction } from '../feed/usePostActions';
 
@@ -69,7 +70,7 @@ export function StoryViewer({ authorIds, initialAuthorId, onClose, onReply, load
   const { user } = useAuth();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height } = useViewportSize();
   const [authorIndex, setAuthorIndex] = useState(Math.max(0, authorIds.indexOf(initialAuthorId)));
   const [storyIndex, setStoryIndex] = useState(0);
   const [paused, setPaused] = useState(false);

@@ -15,7 +15,7 @@ import { GiftSheet } from '@/features/economy/GiftSheet';
 import { FollowButton } from '@/features/profile/FollowButton';
 import { LiveKitRoom, prepareAudio, releaseAudio } from '@/lib/livekit/room';
 import { getLiveKitToken, type LiveKitCredentials } from '@/services/calls';
-import { acceptLiveInvite, cancelLiveStageRequest, endLive, getLive, getLiveComments, getLiveSummary, joinLive, leaveLive, likeLive, liveHeartbeat, requestLiveStage, sendLiveComment, setLiveReminder, startLive, subscribeToLive } from '@/services/live';
+import { acceptLiveInvite, cancelLiveStageRequest, endLive, getLive, getLiveComments, getLiveSummary, joinLive, leaveLive, likeLive, liveHeartbeat, requestLiveStage, sendLiveComment, setLiveQuestion, setLiveReminder, startLive, subscribeToLive } from '@/services/live';
 import { useAuth } from '@/store/authStore';
 import { palette, radius, spacing } from '@/theme/tokens';
 import type { LiveComment, LiveGiftEvent, LiveSession, LiveSummary } from '@/types/live';
@@ -25,7 +25,8 @@ import { formatCount, formatDate } from '@/utils/format';
 
 import { LiveChatInput, LiveChatList } from './LiveChat';
 import { FloatingHearts, LiveGiftOverlay } from './LiveGiftOverlay';
-import { BattleSheet, CommentActionsSheet, FanClubSheet, HostControlsSheet, LiveSettingsSheet, ParticipantsSheet, RecipientSheet, ViewerMoreSheet, shareLive, type LiveSheetKind } from './LiveSheets';
+import { BattleSheet, BlockedWordsSheet, CommentActionsSheet, FanClubSheet, GoalSheet, HostControlsSheet, LiveSettingsSheet, ParticipantsSheet, QuestionsSheet, RecipientSheet, SupportersSheet, ViewerMoreSheet, shareLive, type LiveSheetKind } from './LiveSheets';
+import { FeaturedQuestion, LiveGoalBar, SupporterRail } from './LiveGoal';
 import { LiveStage } from './LiveStage';
 
 function confirm(title: string, message: string, onConfirm: () => void) {
@@ -125,6 +126,8 @@ export function LiveRoom({ liveId }: { liveId: string }) {
       onParticipants: () => void refresh(),
       onGift: (event) => setGiftQueue((q) => [...q, event.gift]),
       onBattle: () => void refresh(),
+      onGoal: () => void refresh(),
+      onQuestions: () => void refresh(),
     });
   }, [liveId, refresh, loadComments, scheduleCommentReload]);
 
@@ -467,7 +470,37 @@ export function LiveRoom({ liveId }: { liveId: string }) {
         </View>
       ) : null}
 
-      <LiveGiftOverlay queue={giftQueue} onConsumed={() => setGiftQueue((q) => q.slice(1))} top={insets.top + spacing.sm + (battle ? 130 : 84)} />
+      {/* Goal bar, supporter ranking and the question on screen */}
+      {live.goal || live.top_supporters.length > 0 ? (
+        <View style={[styles.goalRow, { top: insets.top + spacing.sm + (battle ? 130 : 76) }]}>
+          {live.goal ? (
+            <View style={{ flex: 1 }}>
+              <LiveGoalBar goal={live.goal} onPress={() => setSheet('goal')} />
+            </View>
+          ) : (
+            <View style={{ flex: 1 }} />
+          )}
+          <SupporterRail supporters={live.top_supporters} onPress={() => setSheet('supporters')} />
+        </View>
+      ) : null}
+      {live.featured_question ? (
+        <View style={[styles.featured, { top: insets.top + spacing.sm + (battle ? 130 : 76) + (live.goal || live.top_supporters.length > 0 ? 46 : 0) }]}>
+          <FeaturedQuestion
+            question={live.featured_question}
+            canClear={canModerate}
+            onClear={async () => {
+              try {
+                await setLiveQuestion(live.featured_question!.id, 'answered');
+                await refresh();
+              } catch (e) {
+                toast.error(getErrorMessage(e));
+              }
+            }}
+          />
+        </View>
+      ) : null}
+
+      <LiveGiftOverlay queue={giftQueue} onConsumed={() => setGiftQueue((q) => q.slice(1))} top={insets.top + spacing.sm + (battle ? 130 : 84) + (live.goal || live.top_supporters.length > 0 ? 46 : 0) + (live.featured_question ? 64 : 0)} />
       <FloatingHearts burst={hearts} bottom={bottomInset + 120} />
 
       {/* Invitation banner */}
@@ -492,6 +525,7 @@ export function LiveRoom({ liveId }: { liveId: string }) {
             <RailButton icon="hand-right-outline" label="Join stage" onPress={async () => { try { await requestLiveStage(liveId); await refresh(); toast.success('Request sent to the host'); } catch (e) { toast.error(getErrorMessage(e)); } }} />
           )
         ) : null}
+        {status === 'live' ? <RailButton icon="help-circle-outline" label={live.questions_pending > 0 && canModerate ? String(live.questions_pending) : 'Q&A'} onPress={() => setSheet('questions')} active={canModerate && live.questions_pending > 0} /> : null}
         {isHost || live.is_moderator ? <RailButton icon="options" label={isHost ? 'Controls' : 'Moderate'} onPress={() => setSheet(isHost ? 'controls' : 'requests')} active={live.pending_requests > 0} /> : <RailButton icon="ellipsis-horizontal" onPress={() => setSheet('more')} />}
       </View>
 
@@ -525,7 +559,11 @@ export function LiveRoom({ liveId }: { liveId: string }) {
       <RecipientSheet live={live} visible={sheet === 'recipient'} onClose={() => setSheet(null)} onPick={(p) => { setSheet(null); setGiftFor(p); }} />
       <HostControlsSheet live={live} visible={sheet === 'controls'} onClose={() => setSheet(null)} onOpen={setSheet} onEnd={() => { setSheet(null); end(); }} />
       <ParticipantsSheet live={live} mode={sheet === 'requests' ? 'requests' : sheet === 'stage' ? 'stage' : 'viewers'} visible={sheet === 'viewers' || sheet === 'requests' || sheet === 'stage'} onClose={() => setSheet(null)} onChanged={() => void refresh()} />
-      <LiveSettingsSheet live={live} visible={sheet === 'settings'} onClose={() => setSheet(null)} onChanged={setLive} />
+      <LiveSettingsSheet live={live} visible={sheet === 'settings'} onClose={() => setSheet(null)} onChanged={setLive} onOpenWords={() => setSheet('words')} />
+      <GoalSheet live={live} visible={sheet === 'goal'} onClose={() => setSheet(null)} onChanged={() => void refresh()} />
+      <QuestionsSheet live={live} visible={sheet === 'questions'} onClose={() => setSheet(null)} onChanged={() => void refresh()} />
+      <SupportersSheet live={live} visible={sheet === 'supporters'} onClose={() => setSheet(null)} />
+      <BlockedWordsSheet visible={sheet === 'words'} onClose={() => setSheet(null)} />
       <BattleSheet live={live} visible={sheet === 'battle'} onClose={() => setSheet(null)} onChanged={setLive} />
       <FanClubSheet creator={live.host} visible={sheet === 'fanclub'} onClose={() => setSheet(null)} />
       <ViewerMoreSheet live={live} visible={sheet === 'more'} onClose={() => setSheet(null)} onOpen={setSheet} />
@@ -538,6 +576,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.night },
   center: { alignItems: 'center', justifyContent: 'center' },
   topShade: { position: 'absolute', left: 0, right: 0, top: 0, height: 160 },
+  goalRow: { position: 'absolute', left: spacing.lg, right: spacing.lg, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  featured: { position: 'absolute', left: spacing.lg, right: spacing.lg },
   bottomShade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 320 },
   topBar: { position: 'absolute', left: spacing.md, right: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   hostPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: radius.full, padding: 4, paddingRight: spacing.sm },

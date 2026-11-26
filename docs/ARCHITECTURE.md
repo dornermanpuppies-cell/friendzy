@@ -88,6 +88,13 @@ in the browser must go through `useHydrated()` (`src/hooks/useHydrated.ts`); the
 (`src/components/ui/Ionicons.tsx`) does this because the icon font is not available during pre-rendering.
 `npm run qa:hydration -- /about /download` diffs the server HTML against the browser DOM when a React #418 shows up.
 
+**LIVE.** `game-engine`-style separation also applies to broadcasts: `live_sessions` and everything around
+it (stage, battles, gifts, fan clubs, moderation in migration 0007; goals, Q&A, supporter ranking and host
+word filters in 0018) are written only through SECURITY DEFINER functions, with clients holding SELECT behind
+`can_view_live()`. Goal progress is driven server-side from `on_live_gift_apply` and `like_live`, so a client
+cannot move the bar on its own. Hosting a broadcast, joining the stage and sending gifts all require
+`is_adult()` — the platform treats 18 as the floor for those, which is what the European rules expect.
+
 **Scrolling inside gesture rows.** A `GestureDetector` sets `touch-action: none` on its view by default,
 which stops a finger drag that starts on that view from scrolling the list around it in a mobile browser.
 Any gesture placed inside a scrollable list must pass the axis it does not own — message rows use

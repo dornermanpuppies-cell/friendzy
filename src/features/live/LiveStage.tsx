@@ -1,6 +1,6 @@
 import { Ionicons } from '@/components/ui/Ionicons';
 import type { LocalVideoTrack } from 'livekit-client';
-import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/Avatar';
 import { Text } from '@/components/ui/Text';
@@ -9,6 +9,7 @@ import { AudioRenderer, flipCamera, isTrackReference, supportsCameraFlip, Track,
 import { palette, radius, spacing } from '@/theme/tokens';
 import type { LiveSession } from '@/types/live';
 import type { AuthorCard } from '@/types/social';
+import { useViewportSize } from '@/hooks/useViewportSize';
 
 interface Publisher extends AuthorCard {
   role: 'host' | 'guest' | 'cohost' | 'moderator' | 'viewer';
@@ -18,7 +19,7 @@ interface Publisher extends AuthorCard {
 
 /** Video grid for the host and everyone on stage (rendered inside LiveKitRoom). */
 export function LiveStage({ live, myId, canPublish, bottomInset }: { live: LiveSession; myId: string | undefined; canPublish: boolean; bottomInset: number }) {
-  const { width, height } = useWindowDimensions();
+  const { width, height } = useViewportSize();
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
   const participants = useParticipants();
   const { localParticipant, isCameraEnabled, isMicrophoneEnabled } = useLocalParticipant();

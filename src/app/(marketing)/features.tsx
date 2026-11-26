@@ -17,7 +17,7 @@ const GROUPS: { title: string; icon: keyof typeof Ionicons.glyphMap; status: 'li
   { title: 'Meet new people', icon: 'people-outline', status: 'live', items: ['Suggestions by shared interests', 'Search by name, username and country', 'New members, popular people, follow & friend requests', 'Random matching and nearby discovery (coming next)'] },
   { title: 'Messaging & calls', icon: 'chatbubbles-outline', status: 'soon', items: ['One-to-one and group chats with media, voice notes, replies and reactions', 'Read receipts, typing indicators, pinned and starred messages', 'Voice and video calls, group calls and call history'] },
   { title: 'Video & stories', icon: 'play-circle-outline', status: 'soon', items: ['Full-screen vertical video feed with creator tools', '24-hour stories with highlights', 'Duets, stitches, sounds and challenges'] },
-  { title: 'LIVE', icon: 'radio-outline', status: 'soon', items: ['Interactive livestreams with multi-guest sessions and battles', 'Gifts, fan clubs and supporter badges', 'Scheduled lives and live discovery'] },
+  { title: 'LIVE', icon: 'radio-outline', status: 'live', items: ['Interactive broadcasts with guests on stage, co-hosts and battles', 'Goals on screen, Q&A, top-supporter ranking and animated gifts', 'Fan clubs and badges, moderators, slow mode and blocked words', 'Scheduled broadcasts, reminders and live discovery', 'Hosting, going on stage and gifting are 18+'] },
   { title: 'Games, gifts & Premium', icon: 'game-controller-outline', status: 'soon', items: ['Ludo, chess, trivia and party games with friends', 'Coins, animated gifts and creator earnings with an auditable ledger', 'Friendzy Premium monthly and yearly plans'] },
 ];
 

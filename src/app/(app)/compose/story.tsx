@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +23,7 @@ import { ThemeScope } from '@/theme/ThemeProvider';
 import { absoluteFillObject, fontFamily, palette, radius, spacing } from '@/theme/tokens';
 import type { StoryAudience, StorySticker } from '@/types/social';
 import { getErrorMessage } from '@/utils/errors';
+import { useViewportSize } from '@/hooks/useViewportSize';
 
 const STICKER_EMOJIS = ['❤️', '🔥', '😂', '✨', '🎉', '👀', '💯', '🙌', '🌍', '🎵', '☕', '🍕', '😎', '🥳', '💜', '⚡'];
 const FONTS: { id: 'display' | 'body' | 'mono'; label: string }[] = [
@@ -67,7 +68,7 @@ export default function ComposeStoryScreen() {
   const { user, settings } = useAuth();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { width, height } = useWindowDimensions();
+  const { width, height } = useViewportSize();
   const [media, setMedia] = useState<PickedMedia | null>(null);
   const [text, setText] = useState('');
   const [caption, setCaption] = useState('');

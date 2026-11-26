@@ -33,6 +33,7 @@
     "functions:vendor-webpush": "bash scripts/vendor-webpush.sh",
     "qa:hydration": "node scripts/qa/hydration-diff.mjs",
     "qa:scroll-audit": "node scripts/qa/scroll-audit.mjs",
+    "qa:keyboard": "node scripts/qa/keyboard-check.mjs",
     "deploy:netlify": "node scripts/netlify-deploy.mjs dist"
   },
   "dependencies": {

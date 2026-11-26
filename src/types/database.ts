@@ -646,6 +646,15 @@ export type Database = {
       leave_fan_club: { Args: { p_creator: string }; Returns: undefined };
       get_fan_club: { Args: { p_creator: string }; Returns: Json };
       send_live_gift: { Args: { p_live: string; p_gift_id: number; p_quantity?: number; p_recipient?: string | null; p_message?: string | null }; Returns: Json };
+      set_live_goal: { Args: { p_live: string; p_kind: string; p_target: number; p_label?: string | null }; Returns: Json };
+      cancel_live_goal: { Args: { p_live: string }; Returns: undefined };
+      ask_live_question: { Args: { p_live: string; p_text: string }; Returns: Json };
+      vote_live_question: { Args: { p_question: string; p_on?: boolean }; Returns: Json };
+      set_live_question: { Args: { p_question: string; p_status: string }; Returns: undefined };
+      get_live_questions: { Args: { p_live: string; p_status?: string; p_limit?: number }; Returns: Json[] };
+      get_live_top_supporters: { Args: { p_live: string; p_limit?: number }; Returns: Json[] };
+      set_live_comment_filter: { Args: { p_word: string; p_on?: boolean }; Returns: undefined };
+      get_live_comment_filters: { Args: Record<string, never>; Returns: string[] };
       get_live: { Args: { p_id: string }; Returns: Json };
       get_live_comments: { Args: { p_id: string; p_limit?: number; p_before?: string | null }; Returns: Json[] };
       get_live_participants: { Args: { p_id: string; p_state?: string }; Returns: Json };

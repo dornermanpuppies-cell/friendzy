@@ -2,7 +2,7 @@ import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import { objectPath, prepareImage, uploadFile } from '@/services/upload';
 import type { Json } from '@/types/database';
-import type { FanClub, LiveCategory, LiveComment, LiveDiscovery, LiveGiftEvent, LiveParticipant, LiveSession, LiveSummary } from '@/types/live';
+import type { FanClub, LiveCategory, LiveComment, LiveDiscovery, LiveGiftEvent, LiveGoal, LiveParticipant, LiveQuestion, LiveSession, LiveSummary, LiveSupporter } from '@/types/live';
 import type { PostAudience, StoryAudience } from '@/types/social';
 
 function rows<T>(data: Json[] | Json | null): T[] {
@@ -246,6 +246,70 @@ export async function sendLiveGift(liveId: string, giftId: number, quantity = 1,
   return data as unknown as { balance: number; gift: LiveGiftEvent['gift'] };
 }
 
+// ---------------------------------------------------------------------------
+// Goals — the target bar the whole room can see
+// ---------------------------------------------------------------------------
+
+/** Host only. Replaces any goal that was already running. */
+export async function setLiveGoal(liveId: string, kind: LiveGoal['kind'], target: number, label: string | null = null): Promise<LiveGoal> {
+  const { data, error } = await supabase.rpc('set_live_goal', { p_live: liveId, p_kind: kind, p_target: target, p_label: label });
+  if (error) throw error;
+  return data as unknown as LiveGoal;
+}
+
+export async function cancelLiveGoal(liveId: string): Promise<void> {
+  const { error } = await supabase.rpc('cancel_live_goal', { p_live: liveId });
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Q&A
+// ---------------------------------------------------------------------------
+export async function askLiveQuestion(liveId: string, text: string): Promise<LiveQuestion> {
+  const { data, error } = await supabase.rpc('ask_live_question', { p_live: liveId, p_text: text });
+  if (error) throw error;
+  return data as unknown as LiveQuestion;
+}
+
+export async function voteLiveQuestion(questionId: string, on = true): Promise<{ id: string; upvotes: number; my_vote: boolean }> {
+  const { data, error } = await supabase.rpc('vote_live_question', { p_question: questionId, p_on: on });
+  if (error) throw error;
+  return data as unknown as { id: string; upvotes: number; my_vote: boolean };
+}
+
+/** Host or moderator: put a question on screen, mark it answered, or drop it. */
+export async function setLiveQuestion(questionId: string, status: LiveQuestion['status']): Promise<void> {
+  const { error } = await supabase.rpc('set_live_question', { p_question: questionId, p_status: status });
+  if (error) throw error;
+}
+
+export async function getLiveQuestions(liveId: string, status: 'open' | LiveQuestion['status'] = 'open', limit = 50): Promise<LiveQuestion[]> {
+  const { data, error } = await supabase.rpc('get_live_questions', { p_live: liveId, p_status: status, p_limit: limit });
+  if (error) throw error;
+  return rows<LiveQuestion>(data);
+}
+
+// ---------------------------------------------------------------------------
+// Supporters and blocked words
+// ---------------------------------------------------------------------------
+export async function getLiveTopSupporters(liveId: string, limit = 20): Promise<LiveSupporter[]> {
+  const { data, error } = await supabase.rpc('get_live_top_supporters', { p_live: liveId, p_limit: limit });
+  if (error) throw error;
+  return rows<LiveSupporter>(data);
+}
+
+/** Words the host blocks in their own broadcasts. */
+export async function getLiveCommentFilters(): Promise<string[]> {
+  const { data, error } = await supabase.rpc('get_live_comment_filters');
+  if (error) throw error;
+  return (data ?? []) as unknown as string[];
+}
+
+export async function setLiveCommentFilter(word: string, on: boolean): Promise<void> {
+  const { error } = await supabase.rpc('set_live_comment_filter', { p_word: word, p_on: on });
+  if (error) throw error;
+}
+
 // Realtime
 export interface LiveRealtimeHandlers {
   onSession?: () => void;
@@ -253,6 +317,8 @@ export interface LiveRealtimeHandlers {
   onParticipants?: () => void;
   onGift?: (event: LiveGiftEvent) => void;
   onBattle?: () => void;
+  onGoal?: () => void;
+  onQuestions?: () => void;
 }
 
 export function subscribeToLive(liveId: string, handlers: LiveRealtimeHandlers): () => void {
@@ -263,6 +329,8 @@ export function subscribeToLive(liveId: string, handlers: LiveRealtimeHandlers):
     .on('postgres_changes', { event: '*', schema: 'public', table: 'live_participants', filter: `live_id=eq.${liveId}` }, () => handlers.onParticipants?.())
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'live_gift_events', filter: `live_id=eq.${liveId}` }, (payload) => handlers.onGift?.(payload.new as LiveGiftEvent))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'live_battles', filter: `live_id=eq.${liveId}` }, () => handlers.onBattle?.())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'live_goals', filter: `live_id=eq.${liveId}` }, () => handlers.onGoal?.())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'live_questions', filter: `live_id=eq.${liveId}` }, () => handlers.onQuestions?.())
     .subscribe();
   return () => {
     supabase.removeChannel(channel).catch(() => undefined);

@@ -50,6 +50,33 @@ export interface LiveBattle {
   winner_id: string | null;
 }
 
+export interface LiveGoal {
+  id: string;
+  kind: 'coins' | 'likes';
+  label: string | null;
+  target: number;
+  progress: number;
+  status: 'active' | 'reached' | 'cancelled';
+  reached_at: string | null;
+}
+
+export interface LiveQuestion {
+  id: string;
+  text: string;
+  status: 'pending' | 'featured' | 'answered' | 'dismissed';
+  upvotes: number;
+  created_at: string;
+  user: AuthorCard;
+  my_vote: boolean;
+}
+
+export interface LiveSupporter {
+  user: AuthorCard;
+  coins: number;
+  gifts: number;
+  rank: number;
+}
+
 export interface LiveSession {
   id: string;
   title: string;
@@ -85,6 +112,12 @@ export interface LiveSession {
   pinned_comment: { id: string; text: string | null; user: AuthorCard | null } | null;
   battle: LiveBattle | null;
   fan_badge: FanBadge | null;
+  /** The goal bar everyone in the room sees, or null when the host has not set one. */
+  goal: LiveGoal | null;
+  /** The question currently on screen. */
+  featured_question: Pick<LiveQuestion, 'id' | 'text' | 'upvotes' | 'user'> | null;
+  questions_pending: number;
+  top_supporters: LiveSupporter[];
 }
 
 export interface LiveComment {

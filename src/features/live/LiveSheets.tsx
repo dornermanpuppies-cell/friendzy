@@ -17,15 +17,15 @@ import { useToast } from '@/components/ui/Toast';
 import { ReportSheet } from '@/features/profile/ReportSheet';
 import { useAsync } from '@/hooks/useAsync';
 import { env } from '@/lib/env';
-import { approveLiveGuest, banLiveUser, deleteLiveComment, endLiveBattle, getFanClub, getLiveDiscovery, getLiveParticipants, inviteLiveGuest, joinFanClub, leaveFanClub, muteLiveUser, pinLiveComment, removeLiveGuest, setLiveCohost, setLiveGuestMedia, setLiveModerator, startLiveBattle, updateLive } from '@/services/live';
+import { approveLiveGuest, askLiveQuestion, banLiveUser, cancelLiveGoal, deleteLiveComment, endLiveBattle, getFanClub, getLiveCommentFilters, getLiveDiscovery, getLiveParticipants, getLiveQuestions, getLiveTopSupporters, inviteLiveGuest, joinFanClub, leaveFanClub, muteLiveUser, pinLiveComment, removeLiveGuest, setLiveCohost, setLiveCommentFilter, setLiveGoal, setLiveGuestMedia, setLiveModerator, setLiveQuestion, startLiveBattle, updateLive, voteLiveQuestion } from '@/services/live';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, spacing } from '@/theme/tokens';
-import type { LiveComment, LiveSession } from '@/types/live';
+import type { LiveComment, LiveGoal, LiveSession } from '@/types/live';
 import type { AuthorCard, StoryAudience } from '@/types/social';
 import { getErrorMessage } from '@/utils/errors';
 import { formatCount } from '@/utils/format';
 
-export type LiveSheetKind = 'controls' | 'viewers' | 'requests' | 'stage' | 'settings' | 'battle' | 'fanclub' | 'more' | 'report' | 'recipient' | null;
+export type LiveSheetKind = 'controls' | 'viewers' | 'requests' | 'stage' | 'settings' | 'battle' | 'fanclub' | 'more' | 'report' | 'recipient' | 'goal' | 'questions' | 'supporters' | 'words' | null;
 
 export async function shareLive(live: LiveSession, toast: ReturnType<typeof useToast>) {
   const url = `${env.siteUrl}/live/${live.id}`;
@@ -53,6 +53,9 @@ export function HostControlsSheet({ live, visible, onClose, onOpen, onEnd }: { l
       <ListItem icon="people-outline" title="On stage" subtitle={`${live.stage.length} of 4 guests · co-hosts, mic & camera`} onPress={() => onOpen('stage')} />
       <ListItem icon="eye-outline" title="Viewers" subtitle="Invite on stage, moderators, mute or ban" onPress={() => onOpen('viewers')} />
       <ListItem icon="flash-outline" title={live.battle?.status === 'active' ? 'Battle in progress' : 'Start a battle'} subtitle={live.battle?.status === 'active' ? 'Gifts count as points until the timer ends' : 'Challenge a co-host or another live host'} onPress={() => onOpen('battle')} />
+      <ListItem icon="flag-outline" title={live.goal ? 'Goal' : 'Set a goal'} subtitle={live.goal ? `${formatCount(live.goal.progress)} of ${formatCount(live.goal.target)} ${live.goal.kind}` : 'Show a gift or like target on screen'} onPress={() => onOpen('goal')} />
+      <ListItem icon="help-circle-outline" title="Questions" subtitle={live.questions_pending > 0 ? `${live.questions_pending} waiting` : 'Pick one to answer on screen'} right={live.questions_pending > 0 ? <View style={styles.badge}><Text variant="caption" color={palette.white}>{live.questions_pending}</Text></View> : undefined} onPress={() => onOpen('questions')} />
+      <ListItem icon="trophy-outline" title="Top supporters" subtitle="Who is sending the most gifts" onPress={() => onOpen('supporters')} />
       <ListItem icon="settings-outline" title="Settings" subtitle="Comments, slow mode, guests, title" onPress={() => onOpen('settings')} />
       <ListItem icon="share-social-outline" title="Share live link" onPress={() => void shareLive(live, toast)} showChevron={false} />
       <ListItem icon="stop-circle-outline" title="End live" danger onPress={onEnd} showChevron={false} />
@@ -124,7 +127,7 @@ export function ParticipantsSheet({ live, mode, visible, onClose, onChanged }: {
   );
 }
 
-export function LiveSettingsSheet({ live, visible, onClose, onChanged }: { live: LiveSession; visible: boolean; onClose: () => void; onChanged: (live: LiveSession) => void }) {
+export function LiveSettingsSheet({ live, visible, onClose, onChanged, onOpenWords }: { live: LiveSession; visible: boolean; onClose: () => void; onChanged: (live: LiveSession) => void; onOpenWords: () => void }) {
   const toast = useToast();
   const [title, setTitle] = useState(live.title);
   const save = async (patch: Parameters<typeof updateLive>[1]) => {
@@ -158,6 +161,9 @@ export function LiveSettingsSheet({ live, visible, onClose, onChanged }: { live:
       </ListSection>
       <ListSection title="Stage">
         <ListItem icon="people-outline" title="Allow guest requests" switchValue={live.allow_guests} onSwitchChange={(v) => void save({ allow_guests: v })} />
+      </ListSection>
+      <ListSection title="Moderation">
+        <ListItem icon="funnel-outline" title="Blocked words" subtitle="Comments containing them never appear" onPress={() => onOpenWords()} />
       </ListSection>
     </Sheet>
   );
@@ -270,6 +276,8 @@ export function ViewerMoreSheet({ live, visible, onClose, onOpen }: { live: Live
       <Sheet visible={visible && !report} onClose={onClose} title={live.title} subtitle={`Hosted by ${live.host.display_name}`}>
         <ListItem icon="person-outline" title="View host profile" onPress={() => { onClose(); router.navigate(`/u/${live.host.username}` as never); }} />
         <ListItem icon="heart-outline" title="Fan club" subtitle={live.fan_badge ? `You are level ${live.fan_badge.level}` : 'Join to earn a badge in chat'} onPress={() => onOpen('fanclub')} />
+        <ListItem icon="help-circle-outline" title="Ask a question" subtitle="The host can put it on screen" onPress={() => onOpen('questions')} />
+        <ListItem icon="trophy-outline" title="Top supporters" subtitle="Ranking for this broadcast" onPress={() => onOpen('supporters')} />
         <ListItem icon="share-social-outline" title="Share" onPress={() => void shareLive(live, toast)} showChevron={false} />
         <ListItem icon="flag-outline" title="Report this live" danger onPress={() => setReport(true)} showChevron={false} />
       </Sheet>
@@ -285,6 +293,265 @@ export function RecipientSheet({ live, visible, onClose, onPick }: { live: LiveS
       {people.map((p) => (
         <ListItem key={p.id} left={<Avatar uri={p.avatar_url} name={p.display_name} size={40} />} title={p.display_name} subtitle={p.id === live.host.id ? 'Host' : 'On stage'} onPress={() => onPick(p)} />
       ))}
+    </Sheet>
+  );
+}
+
+/** Host picks the target the room is working towards; everyone else sees how it is going. */
+export function GoalSheet({ live, visible, onClose, onChanged }: { live: LiveSession; visible: boolean; onClose: () => void; onChanged: () => void }) {
+  const toast = useToast();
+  const [kind, setKind] = useState<LiveGoal['kind']>(live.goal?.kind ?? 'coins');
+  const [target, setTarget] = useState(String(live.goal?.target ?? 1000));
+  const [label, setLabel] = useState(live.goal?.label ?? '');
+  const [busy, setBusy] = useState(false);
+
+  if (!live.is_host) {
+    return (
+      <Sheet visible={visible} onClose={onClose} title="Goal">
+        {live.goal ? (
+          <>
+            <Text variant="h3">{live.goal.label ?? (live.goal.kind === 'coins' ? 'Gift goal' : 'Like goal')}</Text>
+            <Text variant="body" color="textMuted" style={{ marginTop: spacing.xs }}>
+              {formatCount(live.goal.progress)} of {formatCount(live.goal.target)} {live.goal.kind === 'coins' ? 'coins' : 'likes'}
+              {live.goal.status === 'reached' ? ' · reached 🎉' : ''}
+            </Text>
+            <Text variant="small" color="textMuted" style={{ marginTop: spacing.md }}>
+              {live.goal.kind === 'coins' ? 'Send a gift to move the bar.' : 'Tap the heart to move the bar.'}
+            </Text>
+          </>
+        ) : (
+          <EmptyState compact icon="flag-outline" title="No goal yet" description="The host has not set a target for this broadcast." />
+        )}
+        <View style={{ height: spacing.lg }} />
+      </Sheet>
+    );
+  }
+
+  const apply = async () => {
+    const value = Number(target.replace(/[^0-9]/g, ''));
+    if (!value || value < 1) {
+      toast.error('Pick a target above zero');
+      return;
+    }
+    setBusy(true);
+    try {
+      await setLiveGoal(live.id, kind, value, label.trim() || null);
+      toast.success('Goal set');
+      onChanged();
+      onClose();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet visible={visible} onClose={onClose} title={live.goal ? 'Change the goal' : 'Set a goal'} subtitle="Everyone watching sees the bar fill up">
+      <View style={styles.wrap}>
+        <Chip label="🎁 Gift coins" size="sm" selected={kind === 'coins'} onPress={() => setKind('coins')} />
+        <Chip label="❤️ Likes" size="sm" selected={kind === 'likes'} onPress={() => setKind('likes')} />
+      </View>
+      <Input label="Target" value={target} onChangeText={setTarget} keyboardType="number-pad" placeholder="1000" style={{ marginTop: spacing.md }} />
+      <View style={styles.wrap}>
+        {(kind === 'coins' ? [500, 1000, 5000, 10000] : [100, 500, 1000, 5000]).map((n) => (
+          <Chip key={n} label={formatCount(n)} size="sm" selected={target === String(n)} onPress={() => setTarget(String(n))} />
+        ))}
+      </View>
+      <Input label="What is it for? (optional)" value={label} onChangeText={setLabel} maxLength={60} placeholder="New microphone" style={{ marginTop: spacing.md }} />
+      <Button title={live.goal ? 'Update goal' : 'Start goal'} glow fullWidth loading={busy} onPress={() => void apply()} style={{ marginTop: spacing.lg }} />
+      {live.goal ? (
+        <Button
+          title="Remove goal"
+          variant="ghost"
+          fullWidth
+          style={{ marginTop: spacing.sm }}
+          onPress={async () => {
+            try {
+              await cancelLiveGoal(live.id);
+              onChanged();
+              onClose();
+            } catch (error) {
+              toast.error(getErrorMessage(error));
+            }
+          }}
+        />
+      ) : null}
+      <View style={{ height: spacing.lg }} />
+    </Sheet>
+  );
+}
+
+/** Viewers ask and upvote; the host puts one on screen and marks it answered. */
+export function QuestionsSheet({ live, visible, onClose, onChanged }: { live: LiveSession; visible: boolean; onClose: () => void; onChanged: () => void }) {
+  const toast = useToast();
+  const canModerate = live.is_host || live.is_moderator;
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const list = useAsync(() => getLiveQuestions(live.id, 'open', 50), [live.id, visible, live.questions_pending], { enabled: visible });
+
+  const ask = async () => {
+    const value = text.trim();
+    if (value.length < 3) {
+      toast.error('Write a question first');
+      return;
+    }
+    setBusy(true);
+    try {
+      await askLiveQuestion(live.id, value);
+      setText('');
+      toast.success('Question sent');
+      await list.refresh();
+      onChanged();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const act = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      await list.refresh();
+      onChanged();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  };
+
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Questions" subtitle={canModerate ? 'Pick one to show on screen' : 'The host answers the ones with most votes'}>
+      {!live.is_host ? (
+        <Input
+          placeholder="Ask something…"
+          value={text}
+          onChangeText={setText}
+          maxLength={150}
+          rightElement={<Button title="Ask" size="sm" variant="ghost" loading={busy} onPress={() => void ask()} />}
+        />
+      ) : null}
+      {list.loading && !list.data ? (
+        <SkeletonList count={3} />
+      ) : (list.data ?? []).length === 0 ? (
+        <EmptyState compact icon="help-circle-outline" title="No questions yet" description={live.is_host ? 'Viewers can send questions from the live.' : 'Be the first to ask.'} />
+      ) : (
+        (list.data ?? []).map((q) => (
+          <ListItem
+            key={q.id}
+            left={<Avatar uri={q.user.avatar_url} name={q.user.display_name} size={36} />}
+            title={q.text}
+            subtitle={`${q.user.display_name} · ${q.upvotes} ${q.upvotes === 1 ? 'vote' : 'votes'}${q.status === 'featured' ? ' · on screen' : ''}`}
+            showChevron={false}
+            right={
+              canModerate ? (
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  {q.status === 'featured' ? (
+                    <Button title="Answered" size="sm" variant="secondary" onPress={() => void act(() => setLiveQuestion(q.id, 'answered'))} />
+                  ) : (
+                    <Button title="Show" size="sm" onPress={() => void act(() => setLiveQuestion(q.id, 'featured'))} />
+                  )}
+                  <Button title="Hide" size="sm" variant="ghost" onPress={() => void act(() => setLiveQuestion(q.id, 'dismissed'))} />
+                </View>
+              ) : (
+                <Button
+                  title={`▲ ${q.upvotes}`}
+                  size="sm"
+                  variant={q.my_vote ? 'secondary' : 'ghost'}
+                  onPress={() => void act(() => voteLiveQuestion(q.id, !q.my_vote))}
+                />
+              )
+            }
+          />
+        ))
+      )}
+      <View style={{ height: spacing.lg }} />
+    </Sheet>
+  );
+}
+
+/** Ranking of who has gifted the most in this broadcast. */
+export function SupportersSheet({ live, visible, onClose }: { live: LiveSession; visible: boolean; onClose: () => void }) {
+  const list = useAsync(() => getLiveTopSupporters(live.id, 50), [live.id, visible, live.gifts_coins], { enabled: visible });
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Top supporters" subtitle="Gift coins sent during this broadcast">
+      {list.loading && !list.data ? (
+        <SkeletonList count={4} />
+      ) : (list.data ?? []).length === 0 ? (
+        <EmptyState compact icon="trophy-outline" title="No gifts yet" description="The first gift takes the top spot." />
+      ) : (
+        (list.data ?? []).map((s) => (
+          <ListItem
+            key={s.user.id}
+            left={<Avatar uri={s.user.avatar_url} name={s.user.display_name} size={40} />}
+            title={s.user.display_name}
+            subtitle={`${formatCount(s.coins)} coins · ${s.gifts} ${s.gifts === 1 ? 'gift' : 'gifts'}`}
+            right={<Text variant="h4" color={s.rank === 1 ? palette.gold : undefined}>#{s.rank}</Text>}
+            showChevron={false}
+            onPress={() => router.navigate(`/u/${s.user.username}` as never)}
+          />
+        ))
+      )}
+      <View style={{ height: spacing.lg }} />
+    </Sheet>
+  );
+}
+
+/** Words the host blocks across their broadcasts. */
+export function BlockedWordsSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const toast = useToast();
+  const [word, setWord] = useState('');
+  const [busy, setBusy] = useState(false);
+  const list = useAsync(() => getLiveCommentFilters(), [visible], { enabled: visible });
+
+  const add = async () => {
+    const value = word.trim();
+    if (value.length < 2) {
+      toast.error('Blocked words need at least two characters');
+      return;
+    }
+    setBusy(true);
+    try {
+      await setLiveCommentFilter(value, true);
+      setWord('');
+      await list.refresh();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet visible={visible} onClose={onClose} title="Blocked words" subtitle="Comments containing these never reach your live">
+      <Input placeholder="Add a word" value={word} onChangeText={setWord} maxLength={40} autoCapitalize="none" rightElement={<Button title="Add" size="sm" variant="ghost" loading={busy} onPress={() => void add()} />} />
+      {(list.data ?? []).length === 0 ? (
+        <EmptyState compact icon="funnel-outline" title="Nothing blocked" description="Add words you never want to see in your chat." />
+      ) : (
+        <View style={styles.wrap}>
+          {(list.data ?? []).map((w) => (
+            <Chip
+              key={w}
+              label={w}
+              size="sm"
+              selected
+              icon="close"
+              onPress={async () => {
+                try {
+                  await setLiveCommentFilter(w, false);
+                  await list.refresh();
+                } catch (error) {
+                  toast.error(getErrorMessage(error));
+                }
+              }}
+            />
+          ))}
+        </View>
+      )}
+      <Text variant="caption" color="textMuted" style={{ marginTop: spacing.md }}>
+        Up to 50 words. Matching is case-insensitive and applies to every broadcast you host.
+      </Text>
+      <View style={{ height: spacing.lg }} />
     </Sheet>
   );
 }

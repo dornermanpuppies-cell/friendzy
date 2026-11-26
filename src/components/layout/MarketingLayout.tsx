@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import { Link, router } from 'expo-router';
 import { useState, type PropsWithChildren } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';

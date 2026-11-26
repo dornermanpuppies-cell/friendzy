@@ -97,6 +97,7 @@ jobs:
       EXPO_PUBLIC_WEB_HOST: ${{ vars.EXPO_PUBLIC_WEB_HOST }}
       EXPO_PUBLIC_GITHUB_REPO: ${{ github.repository }}
       ANDROID_VERSION_CODE: ${{ github.run_number }}
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID || '026ee88e-cff5-49eb-905a-5e8212fa71d9' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -146,6 +147,18 @@ jobs:
           VERSION=$(node -e "const s=require('fs').readFileSync('/tmp/app-config.json','utf8');console.log(JSON.parse(s.slice(s.indexOf('{'))).version)")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Friendzy v$VERSION (build $ANDROID_VERSION_CODE)"
+
+      - name: Firebase config for push notifications (GOOGLE_SERVICES_JSON secret, optional)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            if echo "$GOOGLE_SERVICES_JSON" | head -c 1 | grep -q '{'; then printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json; else echo "$GOOGLE_SERVICES_JSON" | base64 -d > google-services.json; fi
+            echo "GOOGLE_SERVICES_JSON_PATH=./google-services.json" >> "$GITHUB_ENV"
+            node -e "const g=JSON.parse(require('fs').readFileSync('google-services.json','utf8'));const ok=(g.client||[]).some(c=>c.client_info&&c.client_info.android_client_info&&c.client_info.android_client_info.package_name==='com.friendzy.app');if(!ok){console.error('::error::google-services.json has no Android app with package com.friendzy.app');process.exit(1);}console.log('Firebase project:', g.project_info&&g.project_info.project_id);"
+          else
+            echo "::warning::No GOOGLE_SERVICES_JSON secret — the APK cannot receive push notifications (docs/SETUP.md, Push notifications)."
+          fi
 
       - name: Generate the native Android project (Continuous Native Generation)
         run: npx expo prebuild --platform android --no-install

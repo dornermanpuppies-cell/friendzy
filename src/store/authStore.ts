@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 
 import { supabase } from '@/lib/supabase';
+import { unregisterPush } from '@/services/push';
+import { disableWebPush } from '@/services/webPush';
 import type { ProfileRow, UserPrivateRow, UserSettingsRow } from '@/types/database';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
@@ -124,6 +126,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async (scope = 'local') => {
+    const userId = get().user?.id;
+    // Stop notifications for this account on this device before the session goes away.
+    if (userId) {
+      await Promise.race([Promise.allSettled([unregisterPush(userId), disableWebPush(userId)]), new Promise((resolve) => setTimeout(resolve, 2500))]);
+    }
     try {
       await supabase.auth.signOut({ scope });
     } catch (error) {

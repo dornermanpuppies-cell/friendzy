@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import { router } from 'expo-router';
 import type { Metadata } from 'expo-router/server';
 import { useState } from 'react';

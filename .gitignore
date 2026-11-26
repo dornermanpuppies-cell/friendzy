@@ -68,3 +68,9 @@ google-play-service-account.json
 
 # Browser QA harness output
 qa-artifacts/
+
+# Firebase config for Android push (CI writes it from the GOOGLE_SERVICES_JSON secret)
+/google-services.json
+
+# Deno writes this when the Edge Function sources are type-checked locally; the functions pin their own versions.
+/deno.lock

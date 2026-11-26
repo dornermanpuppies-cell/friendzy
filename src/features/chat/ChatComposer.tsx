@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Location from 'expo-location';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';

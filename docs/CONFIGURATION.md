@@ -15,7 +15,10 @@ Where every credential lives, who may see it, and what it unlocks. **Never paste
 | `REVENUECAT_SECRET_API_KEY` | **secret** | Supabase secrets | optional server lookups | optional |
 | `PUSH_WEBHOOK_SECRET` | **secret** | Supabase secrets + Database Webhook header | push notifications | 🔑 (any random string) |
 | `EXPO_ACCESS_TOKEN` | **secret** | Supabase secrets | authenticated Expo push API | recommended |
-| `EAS_PROJECT_ID`, `EXPO_OWNER` | public | `.env.local`, CI | push tokens, EAS builds | 🔑 |
+| `EAS_PROJECT_ID`, `EXPO_OWNER` | public | `.env.local`, CI (`026ee88e-cff5-49eb-905a-5e8212fa71d9` is the default in app.config.ts) | push tokens, EAS builds | ✅ |
+| `GOOGLE_SERVICES_JSON` (GitHub secret) → `GOOGLE_SERVICES_JSON_PATH` | secret file | GitHub Actions → `google-services.json` at build time | Android push (FCM) | 🔑 owner |
+| `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT` | function secrets | Supabase Edge Function secrets (`push-dispatch`) | Web Push signing | ✅ set 2026-11-26 |
+| `EXPO_PUBLIC_VAPID_PUBLIC_KEY` | public | Netlify / `.env.local` (optional; `src/constants/push.ts` has the current key) | browser push subscriptions | ✅ |
 | FCM / APNs credentials | **secret** | EAS credentials | push delivery | 🔑 |
 | `EXPO_PUBLIC_TENOR_API_KEY` | public | `.env.local` | GIF picker | optional |
 | `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET` (or approved provider) | **secret** | Supabase secrets | web card payments | ⏳ subject to approval; nothing assumes it |

@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Link, Redirect, router } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';

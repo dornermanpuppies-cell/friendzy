@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import { useEventListener } from 'expo';
 import { useAudioPlayer } from 'expo-audio';
 import { Image } from 'expo-image';

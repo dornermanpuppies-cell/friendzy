@@ -115,73 +115,106 @@ Deno.serve(async (req) => {
   const toPlayers = (rows: Participant[]): GamePlayer[] => rows.map((p) => ({ user_id: p.user_id, seat: p.seat }));
   const ctx: EngineContext = { players: toPlayers(participants.filter((p) => p.state !== 'invited')), now: Date.now(), random: secureRandom, turnSeconds: game.turn_seconds };
 
-  let result: StepResult<unknown> | null = null;
-  let moveRecord: Record<string, unknown> | null = null;
-  let newStatus: string = room.status;
   const nowIso = new Date().toISOString();
 
+  let engine: ReturnType<typeof getEngine>;
   try {
-    const engine = getEngine(room.game, { Chess: Chess as never });
-    if (action === 'start') {
-      if (room.host_id !== userId) return json({ error: 'Only the host can start the game' }, 403);
-      if (room.status !== 'waiting') return json({ error: 'The game has already started' }, 409);
-      const joined = participants.filter((p) => p.state === 'joined');
-      if (joined.length < game.min_players) return json({ error: `${game.name} needs at least ${game.min_players} players` }, 400);
-      const notReady = joined.filter((p) => !p.is_ready && p.user_id !== room.host_id);
-      if (notReady.length > 0) return json({ error: 'Everyone needs to tap Ready first' }, 400);
-      ctx.players = toPlayers(joined);
-      result = engine.init(ctx, await buildOptions(admin, room.game));
-      moveRecord = { type: 'start' };
-      newStatus = 'playing';
-    } else {
-      if (room.status !== 'playing') return json({ error: 'This game is not running' }, 409);
-      let state = room.state as { left?: string[] };
-      // Apply leaves recorded by leave_game_room() that the engine has not processed yet.
-      const known = new Set(state.left ?? []);
-      for (const p of participants) {
-        if (p.state === 'left' && !known.has(p.user_id)) {
-          result = engine.leave(state, p.user_id, ctx);
-          state = result.state as { left?: string[] };
-        }
-      }
-      if (action === 'forfeit') {
-        result = engine.leave(state, userId, ctx);
-        await admin.from('game_participants').update({ state: 'left', left_at: nowIso, is_ready: false }).eq('room_id', roomId).eq('user_id', userId);
-        moveRecord = { type: 'leave' };
-      } else if (action === 'move') {
-        if (typeof body.version === 'number' && body.version !== room.version) return json({ error: 'The game moved on — refreshing.', code: 'STALE', room: await fetchRoom() }, 409);
-        if (!body.move || typeof body.move !== 'object') return json({ error: 'Missing move' }, 400);
-        result = engine.move(state, body.move, userId, ctx);
-        moveRecord = body.move as Record<string, unknown>;
-      } else if (action === 'tick') {
-        const deadline = room.turn_deadline ? Date.parse(room.turn_deadline) : null;
-        if (deadline !== null && deadline <= Date.now()) {
-          result = engine.timeout(state, ctx);
-          moveRecord = { type: 'timeout' };
-        } else if (!result) {
-          return json({ room: await fetchRoom(), changed: false });
-        }
-      }
-    }
+    engine = getEngine(room.game, { Chess: Chess as never });
   } catch (error) {
     if (error instanceof GameError) return json({ error: error.message, code: error.code }, 400);
     console.error('[game-engine]', error);
     return json({ error: 'Game engine error' }, 500);
   }
-  if (!result) return json({ room: await fetchRoom(), changed: false });
+  // Simultaneous moves (everyone answering the same question) never fail as "stale": the engine
+  // validates them itself, and a write conflict is retried on the fresh room state.
+  const concurrentMove = action === 'move' && typeof body.move === 'object' && body.move !== null && engine.concurrent?.(body.move) === true;
 
-  const patch: Record<string, unknown> = {
-    state: result.state,
-    version: room.version + 1,
-    status: newStatus,
-    current_turn_user_id: result.turnUser,
-    turn_deadline: result.deadline ? new Date(result.deadline).toISOString() : null,
-    round: result.round,
-    updated_at: nowIso,
+  type Outcome = { result: StepResult<unknown> | null; moveRecord: Record<string, unknown> | null; newStatus: string };
+  // Applies the requested action to the given room snapshot; returns a Response when the request is rejected.
+  const compute = async (current: typeof room): Promise<Outcome | Response> => {
+    const room = current;
+    let result: StepResult<unknown> | null = null;
+    let moveRecord: Record<string, unknown> | null = null;
+    let newStatus: string = room.status;
+    try {
+      if (action === 'start') {
+        if (room.host_id !== userId) return json({ error: 'Only the host can start the game' }, 403);
+        if (room.status !== 'waiting') return json({ error: 'The game has already started' }, 409);
+        const joined = participants.filter((p) => p.state === 'joined');
+        if (joined.length < game.min_players) return json({ error: `${game.name} needs at least ${game.min_players} players` }, 400);
+        const notReady = joined.filter((p) => !p.is_ready && p.user_id !== room.host_id);
+        if (notReady.length > 0) return json({ error: 'Everyone needs to tap Ready first' }, 400);
+        ctx.players = toPlayers(joined);
+        result = engine.init(ctx, await buildOptions(admin, room.game));
+        moveRecord = { type: 'start' };
+        newStatus = 'playing';
+      } else {
+        if (room.status !== 'playing') return json({ error: 'This game is not running' }, 409);
+        let state = room.state as { left?: string[] };
+        // Apply leaves recorded by leave_game_room() that the engine has not processed yet.
+        const known = new Set(state.left ?? []);
+        for (const p of participants) {
+          if (p.state === 'left' && !known.has(p.user_id)) {
+            result = engine.leave(state, p.user_id, ctx);
+            state = result.state as { left?: string[] };
+          }
+        }
+        if (action === 'forfeit') {
+          result = engine.leave(state, userId, ctx);
+          await admin.from('game_participants').update({ state: 'left', left_at: nowIso, is_ready: false }).eq('room_id', roomId).eq('user_id', userId);
+          moveRecord = { type: 'leave' };
+        } else if (action === 'move') {
+          if (!concurrentMove && typeof body.version === 'number' && body.version !== room.version) return json({ error: 'The game moved on — refreshing.', code: 'STALE', room: await fetchRoom() }, 409);
+          if (!body.move || typeof body.move !== 'object') return json({ error: 'Missing move' }, 400);
+          result = engine.move(state, body.move, userId, ctx);
+          moveRecord = body.move as Record<string, unknown>;
+        } else if (action === 'tick') {
+          const deadline = room.turn_deadline ? Date.parse(room.turn_deadline) : null;
+          if (deadline !== null && deadline <= Date.now()) {
+            result = engine.timeout(state, ctx);
+            moveRecord = { type: 'timeout' };
+          } else if (!result) {
+            return json({ room: await fetchRoom(), changed: false });
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof GameError) return json({ error: error.message, code: error.code }, 400);
+      console.error('[game-engine]', error);
+      return json({ error: 'Game engine error' }, 500);
+    }
+    return { result, moveRecord, newStatus };
   };
-  if (action === 'start') patch.started_at = nowIso;
-  const { data: updated } = await admin.from('game_rooms').update(patch).eq('id', roomId).eq('version', room.version).select('id').maybeSingle();
-  if (!updated) return json({ error: 'The game moved on — refreshing.', code: 'STALE', room: await fetchRoom() }, 409);
+
+  let current = room;
+  let result: StepResult<unknown> | null = null;
+  let moveRecord: Record<string, unknown> | null = null;
+  for (let attempt = 0; ; attempt++) {
+    const outcome = await compute(current);
+    if (outcome instanceof Response) return outcome;
+    if (!outcome.result) return json({ room: await fetchRoom(), changed: false });
+    const patch: Record<string, unknown> = {
+      state: outcome.result.state,
+      version: current.version + 1,
+      status: outcome.newStatus,
+      current_turn_user_id: outcome.result.turnUser,
+      turn_deadline: outcome.result.deadline ? new Date(outcome.result.deadline).toISOString() : null,
+      round: outcome.result.round,
+      updated_at: nowIso,
+    };
+    if (action === 'start') patch.started_at = nowIso;
+    const { data: updated } = await admin.from('game_rooms').update(patch).eq('id', roomId).eq('version', current.version).select('id').maybeSingle();
+    if (updated) {
+      result = outcome.result;
+      moveRecord = outcome.moveRecord;
+      break;
+    }
+    // Someone else changed the room between our read and our write.
+    if (!concurrentMove || attempt >= 2) return json({ error: 'The game moved on — refreshing.', code: 'STALE', room: await fetchRoom() }, 409);
+    const { data: fresh } = await admin.from('game_rooms').select('*').eq('id', roomId).maybeSingle();
+    if (!fresh) return json({ error: 'Room not found' }, 404);
+    current = fresh;
+  }
 
   if (moveRecord) {
     const { data: last } = await admin.from('game_moves').select('seq').eq('room_id', roomId).order('seq', { ascending: false }).limit(1).maybeSingle();

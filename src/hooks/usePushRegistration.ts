@@ -4,14 +4,24 @@ import { useEffect } from 'react';
 import { Platform } from 'react-native';
 
 import { installNotificationHandler, registerForPush, urlFromNotification } from '@/services/push';
+import { syncWebPush, watchWebPushChanges } from '@/services/webPush';
 
 /**
- * Registers the device for push notifications once the user is signed in and
+ * Registers this device for push notifications once the user is signed in and
  * navigates to the deep link carried by tapped notifications.
+ *
+ * - Android / iOS: Expo push token → public.user_devices.
+ * - Web: if the browser already granted notification permission, the push
+ *   subscription is (re)stored for this account; the first permission request
+ *   happens from a button (Settings → Notifications / the Notifications screen).
  */
 export function usePushRegistration(userId: string | undefined): void {
   useEffect(() => {
-    if (!userId || Platform.OS === 'web') return;
+    if (!userId) return;
+    if (Platform.OS === 'web') {
+      void syncWebPush(userId);
+      return watchWebPushChanges(userId);
+    }
     installNotificationHandler();
     void registerForPush(userId).then((result) => {
       if (result !== 'registered' && __DEV__) console.info(`[push] not registered: ${result}`);

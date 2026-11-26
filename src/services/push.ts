@@ -6,7 +6,20 @@ import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
 
-export type PushRegistrationResult = 'registered' | 'denied' | 'unsupported' | 'no_project_id' | 'simulator' | 'error';
+export type PushRegistrationResult = 'registered' | 'denied' | 'unsupported' | 'no_project_id' | 'simulator' | 'no_firebase' | 'error';
+
+/** Last outcome of registerForPush on this device (shown in Settings → Notifications). */
+export let lastPushRegistration: { result: PushRegistrationResult; detail?: string } | null = null;
+
+export const PUSH_RESULT_LABEL: Record<PushRegistrationResult, string> = {
+  registered: 'This device receives push notifications.',
+  denied: 'Notifications are blocked for Friendzy in the system settings. Allow them there to receive pushes.',
+  unsupported: 'Push notifications are not supported here.',
+  no_project_id: 'This build has no Expo project id, so it cannot register for push.',
+  simulator: 'Push notifications only work on a real phone, not in an emulator.',
+  no_firebase: 'This build was made without the Firebase configuration (google-services.json), so Android cannot receive pushes yet.',
+  error: 'Push registration failed. Pull to retry; if it keeps failing, reinstall the app.',
+};
 
 let handlerInstalled = false;
 
@@ -32,17 +45,28 @@ function projectId(): string | undefined {
  */
 export async function registerForPush(userId: string): Promise<PushRegistrationResult> {
   if (Platform.OS === 'web') return 'unsupported';
-  if (!Device.isDevice) return 'simulator';
+  if (!Device.isDevice) {
+    lastPushRegistration = { result: 'simulator' };
+    return 'simulator';
+  }
   const id = projectId();
-  if (!id) return 'no_project_id';
+  if (!id) {
+    lastPushRegistration = { result: 'no_project_id' };
+    return 'no_project_id';
+  }
   try {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', { name: 'Friendzy', importance: AndroidImportance.MAX, vibrationPattern: [0, 250, 250, 250], lightColor: '#7000FF' });
+      await Notifications.setNotificationChannelAsync('messages', { name: 'Messages', importance: AndroidImportance.MAX, vibrationPattern: [0, 200, 100, 200], lightColor: '#7000FF' });
+      await Notifications.setNotificationChannelAsync('calls', { name: 'Calls', importance: AndroidImportance.MAX, vibrationPattern: [0, 400, 200, 400, 200, 400], lightColor: '#FF28B9' });
     }
     const existing = await Notifications.getPermissionsAsync();
     let status = existing.status;
     if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status;
-    if (status !== 'granted') return 'denied';
+    if (status !== 'granted') {
+      lastPushRegistration = { result: 'denied' };
+      return 'denied';
+    }
     const token = (await Notifications.getExpoPushTokenAsync({ projectId: id })).data;
     const deviceName = [Device.manufacturer, Device.modelName].filter(Boolean).join(' ') || null;
     const appVersion = Constants.expoConfig?.version ?? null;
@@ -52,10 +76,15 @@ export async function registerForPush(userId: string): Promise<PushRegistrationR
     } else {
       await supabase.from('user_devices').insert({ user_id: userId, platform: Platform.OS === 'ios' ? 'ios' : 'android', push_token: token, device_name: deviceName, app_version: appVersion });
     }
+    lastPushRegistration = { result: 'registered' };
     return 'registered';
   } catch (error) {
     console.warn('[push] registration failed', error);
-    return 'error';
+    const message = error instanceof Error ? error.message : String(error);
+    // Android without google-services.json: Firebase is not initialised, so there is no device token to exchange.
+    const noFirebase = /FirebaseApp|google-services|FCM|Firebase/i.test(message);
+    lastPushRegistration = { result: noFirebase ? 'no_firebase' : 'error', detail: message };
+    return noFirebase ? 'no_firebase' : 'error';
   }
 }
 

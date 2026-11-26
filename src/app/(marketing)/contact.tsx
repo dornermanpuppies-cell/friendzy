@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import type { Metadata } from 'expo-router/server';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 

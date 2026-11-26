@@ -77,6 +77,16 @@ Failed processing keeps the row unprocessed and answers 500 so LiveKit retries; 
 
 ## Games
 `game-engine` is the only writer of `game_rooms.state` (optimistic version lock, timeouts applied by any online client via `tick`).
+The version lock protects turn-based games (chess, ludo, truth or dare). Simultaneous-answer games (trivia, would you
+rather, guess the song) mark their `answer` move as *concurrent* (`GameEngine.concurrent`): the function skips the
+version check for it, lets the engine validate phase/duplicates, and retries the write on the fresh row if two answers
+collide — so the second player to answer within the same second never loses the tap (that bug cost guests their points
+until 2026-11-26). The app treats a `STALE` reply as "refresh the board", never as an error toast.
+
+**Web static export and hydration.** Public pages are pre-rendered. Anything that renders differently on the server and
+in the browser must go through `useHydrated()` (`src/hooks/useHydrated.ts`); the app-wide `Ionicons` wrapper
+(`src/components/ui/Ionicons.tsx`) does this because the icon font is not available during pre-rendering.
+`npm run qa:hydration -- /about /download` diffs the server HTML against the browser DOM when a React #418 shows up.
 Engines are pure TypeScript shared with the app (`supabase/functions/_shared/games`); answer keys live under `state.secret`, which
 `game_room_json` strips before it reaches clients. Results, ratings and leaderboards are written by `apply_game_results` (service role).
 

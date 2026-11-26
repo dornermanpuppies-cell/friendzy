@@ -158,6 +158,8 @@ export function describeNotification(item: NotificationItem): { title: string; b
       return { title: 'Verification', body: (item.data as { verified?: boolean })?.verified ? 'Your account is now verified ✓' : `Your verification request was reviewed${(item.data as { note?: string })?.note ? `: ${(item.data as { note?: string }).note}` : ''}`, href: '/settings/verification' };
     case 'security_alert':
       return { title: 'Security alert', body: String((item.data as { message?: string })?.message ?? 'Review your account activity'), href: '/settings/security' };
+    case 'test_notification':
+      return { title: 'Test notification', body: 'push notifications are working on this device 🎉', href: '/settings/notifications' };
     default:
       return { title: name, body: item.type.replace(/_/g, ' '), href: profileHref };
   }

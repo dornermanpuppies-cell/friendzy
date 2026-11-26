@@ -32,7 +32,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | Email | Branded Resend templates via Send-Email hook | 🔑 `RESEND_API_KEY` |
 | Onboarding | 7 steps, resumable | 🧪 |
 | Profiles | Profile pages, edit, follow/friend/block/report, privacy settings, discover, presence | 🧪 |
-| Notifications | In-app centre (realtime) · Push via Expo (device registration + `push-dispatch`, database triggers via pg_net + Vault — migration 0014) | 🧪 / 🔑 EAS project id for native push tokens |
+| Notifications | In-app centre (realtime) · Push via Expo (device registration + `push-dispatch`, database triggers via pg_net + Vault — migration 0014) | ✅ EAS project id `026ee88e-cff5-49eb-905a-5e8212fa71d9` wired into `app.config.ts` and the Android workflow · 🔑 Firebase `google-services.json` + FCM V1 key (Android) · 🔑 Apple Developer (iOS) |
 
 ## Phase 2 — Social networking
 | Item | Status |
@@ -58,6 +58,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | Item | Status |
 | --- | --- |
 | 1:1 & group chats, attachments, voice notes, GIFs (🔑 Tenor key), stickers, replies, edit/delete, reactions, forward, star, pin, search, read receipts, typing, archive/mute/pin/unread, disappearing messages, wallpapers, message requests, invite links | 🧪 |
+| Push notifications when the app is closed: Web Push (VAPID, RFC 8291; service worker shows + opens the screen; Settings → Notifications status card, **Turn on notifications**, **Send me a test notification**; `web_push_subscriptions`, 10 per account), Expo push for phones with proper channels (messages/calls) and priorities, incoming calls ring closed apps (trigger on `call_participants`), message requests, test notifications; dispatcher self-tested with an independent decryption. Android still needs the owner's Firebase file (SETUP §12) — the app says so instead of pretending | ✅ web · 🔑 Android (Firebase) · 🔑 iOS (Apple) |
 | Notifications bell: fixed 2026-11-26 — opening the screen while the badge counter listened on the same realtime channel threw `cannot add postgres_changes callbacks … after subscribe()` (blank screen on web, app closed on Android). Every database listener now gets its own channel (`src/lib/realtime.ts`); covered by `scripts/qa/e2e.mjs --only notifications` | ✅ |
 | End-to-end encryption: per-device X25519/Ed25519 keys (10 per user, revocable), sealed envelopes with per-message keys, server-side recipient check (no plaintext fallback, plaintext RPCs revoked), encrypted attachments (chunked, streamed on phones), inbox previews / replies / edits / forwards / story replies / search / media gallery all handled on-device, security codes + trust-on-first-use notices, Settings → End-to-end encryption (devices, limits), generic push text, reports carry reporter-decrypted text | ✅ DB (`0015_e2ee`, 70+ assertions) · ✅ crypto (12 Jest cases) · 🧪 two-account UI test |
 
@@ -106,12 +107,19 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | EAS config (`eas.json`), Netlify config | 🧪 / 🔑 EAS project, store accounts |
 | Store submission, production security review on live project | ⏳ owner action |
 
-## Verification run (this build)
-- `npm run db:test` — all 10 suites pass, RLS enabled on 105 public tables.
+## Verification run (this build, 2026-11-26)
+- `npm run db:test` — all 17 migration suites pass, RLS enabled on 112 public tables.
 - `npm run typecheck` — passes.
-- `npm run lint` — passes (React Compiler advisories are reported as warnings; see eslint.config.js).
-- `npm test` — 48 unit tests pass.
-- `npm run web:export` — static site builds.
+- `npm run lint` — 0 errors (React Compiler advisories are warnings; see eslint.config.js).
+- `npm test` — 116 unit tests pass (12 suites, incl. 19 game-engine rule tests).
+- `npx expo export --platform web` + `scripts/netlify-redirects.mjs` — static site builds, `public/_redirects` in sync.
+- `npm run qa:hydration` — no React hydration errors on `/`, `/sign-in`, `/about`, `/download`, `/features`, `/help`, `/privacy`.
+- `npm run qa:e2e` (two real accounts in two browsers against the exported site): notifications bell, post → like →
+  comment → notification → deep link, follow + friend request + accept, story compose/view/react, search, push status card,
+  end-to-end encrypted chat, voice call (LiveKit), trivia, chess (+ leaderboard), ludo, truth or dare, would you rather,
+  Guess-the-Song availability notice, and a 44-route smoke pass — see `qa-artifacts/report.json` of the last run.
+- Live push pipeline: `request_test_notification()` → pg_net → `push-dispatch` v16 answered `200 {"ok":true,…}`; a
+  fake browser subscription was marked failed and the fake phone token handled as "not registered".
 
 ## Open configuration items (owner action required)
 1. ~~Run the migrations~~ ✅ 0001–0016 applied and recorded in the CLI history (2026-11-26). Nothing to run.
@@ -121,7 +129,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 2b. Register `https://gwdpsrjmfrgcloacvdlg.supabase.co/functions/v1/livekit-webhook` on the LiveKit project (after `supabase functions deploy livekit-webhook --no-verify-jwt`): `lk cloud auth --user-auth` then `lk project webhook create … --signing-key <LIVEKIT_API_KEY id> --user-auth`, or `npm run livekit:webhook:register`, or the dashboard. Then `npm run livekit:webhook:test` to confirm it is active. Registration needs a signed-in LiveKit user; the API key cannot do it.
 3. ~~Supabase Auth redirect URLs~~ ✅ · ~~Database Webhooks for push~~ ✅ replaced by migration 0014 (pg_net + Vault). Open: custom SMTP for auth emails (the built-in mailer allows only a few emails per hour).
 4. RevenueCat: entitlement `friendzy_premium`, offering `default` with `$rc_monthly` → `friendzy_premium_monthly`, `$rc_annual` → `friendzy_premium_yearly`, consumables with the coin SKUs, webhook → `revenuecat-webhook` with `REVENUECAT_WEBHOOK_AUTH`; public SDK keys in `.env.local` / EAS.
-5. EAS project id (push notifications + builds); FCM / APNs credentials via `eas credentials`.
+5. ~~EAS project id~~ ✅ `026ee88e-cff5-49eb-905a-5e8212fa71d9` (2026-11-26). Still owner-only: Firebase project → `google-services.json` → GitHub secret `GOOGLE_SERVICES_JSON` + FCM V1 service-account key in Expo credentials (Android pushes), Apple Developer account → APNs key (iPhone pushes); see SETUP §12. Note: production runs `push-dispatch` v16; the repository additionally awaits the stale-token cleanup (deploys with the next `supabase functions deploy push-dispatch --no-verify-jwt`).
 6. Resend API key + verified domain for production email.
 7. Decide the web card-payment provider (Paddle is a candidate, not assumed) — then set `web_billing_provider` and add the adapter.
 8. Enable payouts only when a payout provider and identity verification process exist (`payouts_enabled`, super admin only).

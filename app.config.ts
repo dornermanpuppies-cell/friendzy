@@ -1,5 +1,13 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
+// Expo (EAS) project the builds belong to — required to mint Expo push tokens.
+// A project id is a public identifier; EAS_PROJECT_ID may override it.
+const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID || '026ee88e-cff5-49eb-905a-5e8212fa71d9';
+// Firebase Cloud Messaging config for Android push: set GOOGLE_SERVICES_JSON_PATH to the
+// google-services.json downloaded from the Firebase console (the CI workflow does this from
+// the GOOGLE_SERVICES_JSON secret). Builds work without it, but Android cannot receive pushes.
+const GOOGLE_SERVICES = process.env.GOOGLE_SERVICES_JSON_PATH || undefined;
+
 /**
  * Friendzy — Expo app configuration.
  *
@@ -42,6 +50,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // EAS production builds manage their own version code remotely.
     versionCode: Number.parseInt(process.env.ANDROID_VERSION_CODE ?? '', 10) || 1,
     predictiveBackGestureEnabled: false,
+    googleServicesFile: GOOGLE_SERVICES,
     adaptiveIcon: {
       backgroundColor: '#35006B',
       foregroundImage: './assets/images/android-icon-foreground.png',
@@ -131,7 +140,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   extra: {
     eas: {
-      projectId: process.env.EAS_PROJECT_ID,
+      projectId: EAS_PROJECT_ID,
     },
   },
 });

@@ -6,6 +6,7 @@ import { Screen } from '@/components/ui/Screen';
 import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
+import { PushStatusCard } from '@/features/notifications/PushStatusCard';
 import { useAsync } from '@/hooks/useAsync';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/store/authStore';
@@ -19,7 +20,7 @@ const GROUPS: { title: string; items: { key: PrefKey; label: string; subtitle?: 
   {
     title: 'Channels',
     items: [
-      { key: 'push_enabled', label: 'Push notifications', subtitle: 'Delivered through Expo Push once the mobile apps are built' },
+      { key: 'push_enabled', label: 'Push notifications', subtitle: 'Phone and browser alerts, even when Friendzy is closed' },
       { key: 'email_enabled', label: 'Email notifications', subtitle: 'Important account activity' },
     ],
   },
@@ -82,6 +83,8 @@ export default function NotificationSettingsScreen() {
       <Text variant="body" color="textMuted" style={{ marginVertical: spacing.lg }}>
         Choose what you want to hear about. In-app notifications are always available in your notification centre.
       </Text>
+      <PushStatusCard />
+      <View style={{ height: spacing.lg }} />
       {prefs.error ? (
         <EmptyState compact icon="cloud-offline-outline" title="Couldn't load preferences" description={prefs.error} action={{ title: 'Retry', onPress: prefs.reload, variant: 'secondary' }} />
       ) : prefs.data ? (

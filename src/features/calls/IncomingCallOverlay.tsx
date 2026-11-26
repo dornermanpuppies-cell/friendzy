@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import * as Haptics from 'expo-haptics';
 import { router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';

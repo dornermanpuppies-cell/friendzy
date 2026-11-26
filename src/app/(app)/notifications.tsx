@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
@@ -11,6 +11,7 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { SkeletonList } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
+import { PushStatusCard } from '@/features/notifications/PushStatusCard';
 import { useAsync } from '@/hooks/useAsync';
 import {
   describeNotification,
@@ -124,6 +125,11 @@ export default function NotificationsScreen() {
           refreshing={list.refreshing}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
+          ListHeaderComponent={
+            <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+              <PushStatusCard compact />
+            </View>
+          }
           ListEmptyComponent={
             <EmptyState
               icon="notifications-outline"

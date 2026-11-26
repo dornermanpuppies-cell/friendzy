@@ -295,3 +295,11 @@ describe('chess engine', () => {
     expectCode(() => getEngine('poker'), 'UNKNOWN_GAME');
   });
 });
+
+describe('rounds engine concurrency', () => {
+  it('flags answers (and only answers) as concurrent moves so simultaneous answers are never stale', () => {
+    const engine = createRoundsEngine('wyr', 'would_you_rather');
+    expect(engine.concurrent?.({ type: 'answer', index: 0 })).toBe(true);
+    expect(engine.concurrent?.({ type: 'next' })).toBe(false);
+  });
+});

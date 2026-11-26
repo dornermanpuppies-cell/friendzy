@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import type { LocalVideoTrack } from 'livekit-client';
 import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 

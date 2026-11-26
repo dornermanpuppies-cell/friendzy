@@ -50,6 +50,12 @@ export interface GameEngine<S = unknown, M = unknown> {
   move(state: S, move: M, userId: string, ctx: EngineContext): StepResult<S>;
   timeout(state: S, ctx: EngineContext): StepResult<S>;
   leave(state: S, userId: string, ctx: EngineContext): StepResult<S>;
+  /**
+   * Moves that do not depend on the exact state version — e.g. everyone answering the same
+   * question at once. The server skips the optimistic-concurrency check for them (the engine still
+   * validates phase and duplicates), so two players answering within the same second never lose a tap.
+   */
+  concurrent?(move: M): boolean;
 }
 
 export class GameError extends Error {

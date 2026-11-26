@@ -39,7 +39,7 @@ function loadEnvLocal() {
 loadEnvLocal();
 
 const args = process.argv.slice(2);
-const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,chat,call,games').split(',');
+const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,social,story,search,push,chat,call,games,smoke').split(',');
 const headed = args.includes('--headed');
 const BASE = (process.env.QA_BASE_URL ?? 'http://127.0.0.1:4173').replace(/\/$/, '');
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -108,6 +108,7 @@ class Actor {
     this.session = session;
     this.userId = session.user.id;
     this.errors = [];
+    this.network = [];
   }
   async open() {
     // One persistent profile per account: IndexedDB keeps the encryption device between runs,
@@ -118,7 +119,7 @@ class Actor {
       headless: !headed,
       args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required', '--disable-dev-shm-usage'],
       viewport: { width: 414, height: 860 },
-      permissions: ['microphone', 'camera'],
+      permissions: ['microphone', 'camera', 'notifications'],
       ignoreHTTPSErrors: true,
     });
     await this.context.addInitScript(({ key, value }) => {
@@ -129,6 +130,7 @@ class Actor {
       }
     }, { key: STORAGE_KEY, value: JSON.stringify(this.session) });
     this.page = this.context.pages()[0] ?? (await this.context.newPage());
+    this.page.on('dialog', (d) => d.accept().catch(() => undefined));
     this.page.on('pageerror', (e) => {
       this.errors.push(`pageerror: ${e.message}`);
       log(this.name, 'PAGE ERROR', e.message);
@@ -139,6 +141,16 @@ class Actor {
         if (/favicon|manifest|ERR_BLOCKED|net::ERR_ABORTED/.test(text)) return;
         this.errors.push(`console.error: ${text.slice(0, 300)}`);
       }
+    });
+    // Failed network requests (4xx/5xx) with their bodies: the quickest way to explain a console 409/500.
+    this.page.on('response', (r) => {
+      const status = r.status();
+      if (status < 400 || status === 401) return;
+      const url = r.url();
+      if (/favicon|manifest|\.png|\.ico/.test(url)) return;
+      const entry = { at: new Date().toISOString(), status, method: r.request().method(), url: url.slice(0, 220), body: '' };
+      this.network.push(entry);
+      r.text().then((t) => { entry.body = t.slice(0, 300); }).catch(() => undefined);
     });
     return this;
   }
@@ -344,9 +356,36 @@ async function startRoom(host, guest, roomId) {
 }
 
 async function leaveRoom(actor) {
-  actor.page.once('dialog', (d) => d.accept());
-  await actor.clickLabel('Leave room', 15_000).catch(() => undefined);
-  await sleep(1500);
+  const wasInRoom = actor.path().includes('/games/room/');
+  // A finished game shows "Back to games" instead of the Leave room control.
+  const back = actor.page.getByText('Back to games', { exact: true }).locator('visible=true').first();
+  if (await back.isVisible().catch(() => false)) await back.click();
+  else await actor.clickLabel('Leave room', 15_000).catch(() => undefined);
+  if (wasInRoom) {
+    await actor.page.waitForFunction(() => !window.location.pathname.includes('/games/room/'), null, { timeout: 15_000 }).catch(() => log(actor.name, 'still in the room after Leave room:', actor.path()));
+  }
+  await sleep(1000);
+}
+
+/** Polls get_game_room until the predicate accepts the public state (or the timeout passes). */
+async function waitForRoomState(session, roomId, predicate, timeout = 8_000) {
+  const until = Date.now() + timeout;
+  let state = null;
+  while (Date.now() < until) {
+    const room = await rpc(session, 'get_game_room', { p_room: roomId }).catch(() => null);
+    state = room?.state ?? null;
+    if (predicate(state)) return state;
+    await sleep(500);
+  }
+  return state;
+}
+
+/** Fails loudly when a rounds-game answer never reached the engine (screenshot + failed requests). */
+async function expectAnswerRecorded(actor, roomId, label) {
+  const state = await waitForRoomState(actor.session, roomId, (s) => s?.answers?.[actor.userId] || s?.history?.[0]?.perUser?.[actor.userId], 8_000);
+  if (state?.answers?.[actor.userId] || state?.history?.[0]?.perUser?.[actor.userId]) return state;
+  const shot = await actor.shot(`${label}-${actor.name}-answer-missing`);
+  throw new Error(`${actor.name}'s answer was not recorded (${shot}); state=${JSON.stringify({ phase: state?.phase, round: state?.round, answers: state?.answers, left: state?.left })}; failedRequests=${JSON.stringify(actor.network.slice(-3))}`);
 }
 
 async function triviaScenario(alice, bob) {
@@ -355,7 +394,9 @@ async function triviaScenario(alice, bob) {
   await alice.waitForText('Round 1 of', 30_000);
   await bob.waitForText('Round 1 of', 30_000);
   await alice.page.locator('[aria-label^="Option A"]').first().click();
+  await expectAnswerRecorded(alice, roomId, 'trivia');
   await bob.page.locator('[aria-label^="Option B"]').first().click();
+  await expectAnswerRecorded(bob, roomId, 'trivia');
   // Both answered → immediate reveal (otherwise the 15 s answer clock reveals it).
   await alice.page.getByText(/Round 1 results|Round 2 of/).first().waitFor({ state: 'visible', timeout: 25_000 });
   await alice.shot('trivia-reveal');
@@ -416,7 +457,12 @@ async function chessScenario(alice, bob) {
   }
   if (finished?.status !== 'finished' || finished.winner_id !== white.userId) throw new Error(`chess finished=${finished?.status} winner=${finished?.winner_id}`);
   await white.waitForText(/you won/i, 20_000);
-  return { roomId, moves, whiteIs: white.name };
+  await white.goto('/games/leaderboard/chess');
+  await white.waitForText('Arena QA', 30_000);
+  const board = await rpc(alice.session, 'get_leaderboard', { p_game: 'chess', p_limit: 20 });
+  const ranked = (board?.top ?? []).filter((e) => [alice.userId, bob.userId].includes(e.user.id)).length;
+  if (ranked < 2) throw new Error(`leaderboard lists ${ranked} of the two players`);
+  return { roomId, moves, whiteIs: white.name, leaderboardEntries: ranked };
 }
 
 async function ludoScenario(alice, bob) {
@@ -479,6 +525,183 @@ async function guessTheSongScenario(alice) {
   return { cardLabel: label, availabilityShown: needsMore };
 }
 
+
+// ---------------------------------------------------------------------------
+// Social loop: post → like → comment → notifications; follow + friend request; story; search
+// ---------------------------------------------------------------------------
+async function rest(session, pathAndQuery) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${pathAndQuery}`, { headers: { apikey: ANON, Authorization: `Bearer ${session.access_token}` } });
+  if (!res.ok) throw new Error(`GET ${pathAndQuery} → ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+async function postsScenario(alice, bob) {
+  const stamp = Date.now().toString(36);
+  const text = `Friendzy QA post ${stamp} — hello from the browser harness 👋`;
+  await alice.goto('/compose/post');
+  const input = alice.page.locator('textarea[placeholder="What\'s happening?"], input[placeholder="What\'s happening?"]').first();
+  await input.waitFor({ state: 'visible', timeout: 45_000 });
+  await input.fill(text);
+  await alice.clickText('Post');
+  // The post exists server-side (and the composer went away).
+  let post = null;
+  for (let i = 0; i < 20 && !post; i += 1) {
+    const rows = await rest(alice.session, `posts?author_id=eq.${alice.userId}&order=created_at.desc&limit=1&select=id,text`).catch(() => []);
+    if (rows[0] && String(rows[0].text ?? '').includes(stamp)) post = rows[0];
+    else await sleep(1000);
+  }
+  if (!post) throw new Error('post was not created');
+  // Bob reacts and comments on it.
+  await bob.goto(`/post/${post.id}`);
+  await bob.waitForText(stamp, 45_000);
+  await bob.clickLabel('React');
+  await bob.page.locator('[aria-label="Like"]').first().waitFor({ state: 'visible', timeout: 15_000 });
+  const comment = `Nice one ${stamp}`;
+  const commentInput = bob.page.locator('textarea[placeholder="Add a comment…"], input[placeholder="Add a comment…"]').first();
+  await commentInput.waitFor({ state: 'visible', timeout: 15_000 });
+  await commentInput.fill(comment);
+  await bob.clickLabel('Send comment');
+  await bob.waitForText(comment, 20_000);
+  // Alice sees both notifications (realtime + list).
+  await alice.goto('/notifications');
+  await alice.waitForText('liked your post', 30_000);
+  await alice.waitForText('commented', 30_000);
+  // Opening the like notification lands on the post.
+  await alice.clickText('liked your post', { exact: false });
+  await alice.page.waitForURL(/\/post\//, { timeout: 20_000 });
+  await alice.waitForText(stamp, 20_000);
+  return { postId: post.id, comment };
+}
+
+async function followAndFriendsScenario(alice, bob) {
+  await bob.goto('/u/arena_qa_alice');
+  await bob.page.getByText('Arena QA Alice', { exact: true }).first().waitFor({ state: 'visible', timeout: 45_000 });
+  // Follow (idempotent across runs: unfollow first if already following)
+  const following = bob.page.locator('[aria-label="Following"]').first();
+  if (await following.isVisible().catch(() => false)) {
+    await following.click();
+    await bob.page.locator('[aria-label="Follow"]').first().waitFor({ state: 'visible', timeout: 15_000 });
+  }
+  await bob.clickLabel('Follow');
+  await bob.page.locator('[aria-label="Following"]').first().waitFor({ state: 'visible', timeout: 15_000 });
+  // Friend request (reset first through the API if the pair is already friends / pending)
+  const current = await rpc(bob.session, 'get_relationship', { p_target: alice.userId }).catch(() => null);
+  if (current?.is_friend) await rpc(bob.session, 'unfriend', { p_other: alice.userId }).catch(() => undefined);
+  if (current?.friend_request?.id) {
+    if (current.friend_request.direction === 'outgoing') await rpc(bob.session, 'cancel_friend_request', { p_request: current.friend_request.id }).catch(() => undefined);
+    else await rpc(bob.session, 'respond_friend_request', { p_request: current.friend_request.id, p_accept: false }).catch(() => undefined);
+  }
+  await bob.goto('/u/arena_qa_alice');
+  await bob.clickText('Add friend');
+  await bob.waitForText('Request sent', 15_000);
+  // Alice accepts from Bob's profile (the request also appears under /requests and in her notifications)
+  await alice.goto('/u/arena_qa_bob');
+  await alice.clickText('Accept request');
+  await sleep(2000);
+  const rel = await rpc(alice.session, 'get_relationship', { p_target: bob.userId }).catch(() => null);
+  if (!rel?.is_friend) throw new Error(`friend request was not accepted: ${JSON.stringify(rel)}`);
+  // Bob's notifications: accepted
+  await bob.goto('/notifications');
+  await bob.waitForText('accepted your friend request', 30_000);
+  await alice.goto('/notifications');
+  await alice.waitForText('started following you', 20_000);
+  return { isFriend: rel?.is_friend ?? 'unknown' };
+}
+
+async function storyScenario(alice, bob) {
+  const stamp = Date.now().toString(36);
+  await alice.goto('/compose/story');
+  const input = alice.page.locator('textarea[placeholder="Type something…"], input[placeholder="Type something…"]').first();
+  await input.waitFor({ state: 'visible', timeout: 45_000 });
+  await input.fill(`Story ${stamp}`);
+  await alice.clickText('Share story');
+  await sleep(2500);
+  await bob.goto(`/story/${alice.userId}`);
+  await bob.waitForText(`Story ${stamp}`, 45_000);
+  await bob.clickLabel('React ❤️');
+  await alice.goto('/notifications');
+  await alice.waitForText('reacted ❤️ to your story', 30_000);
+  return { stamp };
+}
+
+async function searchScenario(alice) {
+  await alice.goto('/search');
+  const input = alice.page.locator('input[placeholder="Search people, posts, #hashtags"]').first();
+  await input.waitFor({ state: 'visible', timeout: 45_000 });
+  await input.fill('Arena QA Bob');
+  await input.press('Enter');
+  await alice.waitForText('Arena QA Bob', 30_000);
+  await alice.clickText('Arena QA Bob', { exact: false });
+  await alice.page.waitForURL(/\/u\/arena_qa_bob/, { timeout: 20_000 });
+  return { found: true };
+}
+
+async function wouldYouRatherScenario(alice, bob) {
+  const roomId = await createRoomViaUi(alice, 'Would You Rather');
+  await startRoom(alice, bob, roomId);
+  await alice.waitForText('Round 1 of', 30_000);
+  await bob.waitForText('Round 1 of', 30_000);
+  await alice.page.locator('[aria-label^="Option A"]').first().click();
+  await expectAnswerRecorded(alice, roomId, 'wyr');
+  await bob.page.locator('[aria-label^="Option A"]').first().click();
+  await expectAnswerRecorded(bob, roomId, 'wyr');
+  await alice.page.getByText(/Round 1 results|Round 2 of/).first().waitFor({ state: 'visible', timeout: 30_000 });
+  const pct = await alice.hasText('100%', 5_000);
+  const room = await rpc(alice.session, 'get_game_room', { p_room: roomId });
+  const scores = room?.state?.scores ?? {};
+  await leaveRoom(bob);
+  await sleep(1500);
+  if (scores[alice.userId] !== 10 || scores[bob.userId] !== 10) throw new Error(`unexpected WYR scores ${JSON.stringify(scores)}`);
+  return { roomId, majorityShown: pct, scores };
+}
+
+async function pushSettingsScenario(alice) {
+  await alice.goto('/settings/notifications');
+  const card = alice.page.locator('[data-testid^="push-status:"]').first();
+  await card.waitFor({ state: 'attached', timeout: 45_000 });
+  await alice.page.waitForFunction(() => { const el = document.querySelector('[data-testid^="push-status:"]'); return el && el.getAttribute('data-testid') !== 'push-status:loading'; }, null, { timeout: 20_000 });
+  const before = await card.getAttribute('data-testid');
+  let after = before;
+  if (before === 'push-status:off') {
+    await alice.clickText('Turn on notifications');
+    await sleep(6000);
+    after = await alice.page.locator('[data-testid^="push-status:"]').first().getAttribute('data-testid');
+  }
+  if (after === 'push-status:on') {
+    await alice.clickText('Send me a test notification');
+    await sleep(2000);
+  }
+  const subs = await rest(alice.session, `web_push_subscriptions?user_id=eq.${alice.userId}&select=endpoint,created_at`).catch(() => []);
+  return { before, after, browserSubscriptions: subs.length };
+}
+
+async function smokeScenario(alice) {
+  const routes = ['/home', '/discover', '/videos', '/live', '/create', '/profile', '/inbox', '/calls', '/friends', '/requests', '/notifications', '/search', '/people/search', '/match', '/games', '/games/leaderboard/chess', '/challenges', '/studio', '/wallet', '/wallet/earnings', '/premium', '/settings', '/settings/account', '/settings/appearance', '/settings/blocked', '/settings/chats', '/settings/encryption', '/settings/notifications', '/settings/privacy', '/settings/security', '/settings/sessions', '/settings/verification', '/profile/edit', '/profile/highlights', '/chat/starred', '/chat/new', '/chat/new-group', '/live/go', '/compose/post', '/compose/story', '/compose/video', '/download', '/features', '/help', '/about'];
+  const problems = [];
+  for (const route of routes) {
+    const errorsBefore = alice.errors.length;
+    await alice.goto(route);
+    await sleep(1800);
+    // Playwright's Chromium ships without an H.264 decoder: a feed with real videos rejects play() with
+    // "no supported source was found". Real browsers decode it; do not count it as an app error.
+    alice.errors = alice.errors.filter((e, i) => i < errorsBefore || !/no supported source was found/i.test(e));
+    // Screens that fetch before rendering may show only a spinner at first: allow up to 8 s for text to appear.
+    let text = '';
+    for (let waited = 0; waited < 8_000; waited += 500) {
+      text = await alice.page.evaluate(() => document.body.innerText || '');
+      if (text.trim()) break;
+      await sleep(500);
+    }
+    const path = alice.path();
+    const notFound = /This page doesn't exist/.test(text);
+    const blank = text.trim().length < 20;
+    const newErrors = alice.errors.slice(errorsBefore).filter((e) => e.startsWith('pageerror'));
+    if (notFound || blank || newErrors.length) problems.push({ route, path, notFound, blank, newErrors });
+  }
+  if (problems.length) throw new Error(`routes with problems: ${JSON.stringify(problems).slice(0, 900)}`);
+  return { routes: routes.length };
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -505,6 +728,11 @@ try {
     if (active?.id) await rpc(alice.session, 'leave_call', { p_call: active.id, p_reason: 'qa-reset' }).catch(() => undefined);
   }
   if (only.includes('notifications')) await scenario('Notifications bell stays inside the app', () => notificationsScenario(alice, bob));
+  if (only.includes('social')) await scenario('Post → like → comment → notifications → deep link', () => postsScenario(alice, bob));
+  if (only.includes('social')) await scenario('Follow + friend request + accept + notifications', () => followAndFriendsScenario(alice, bob));
+  if (only.includes('story')) await scenario('Story: compose, view, react, notification', () => storyScenario(alice, bob));
+  if (only.includes('search')) await scenario('Search finds people and opens the profile', () => searchScenario(alice));
+  if (only.includes('push')) await scenario('Push status card: shows state, enables, sends a test', () => pushSettingsScenario(alice));
   if (only.includes('chat')) await scenario('End-to-end encrypted chat between two accounts', () => chatScenario(alice, bob, conversationId));
   if (only.includes('call')) await scenario('Voice call rings, connects on both sides and ends cleanly', () => callScenario(alice, bob, conversationId));
   const wants = (key) => only.includes(key) || only.includes('games');
@@ -512,12 +740,14 @@ try {
   if (wants('chess')) await scenario('Chess room: legal moves, resign, winner recorded', () => chessScenario(alice, bob));
   if (wants('ludo')) await scenario('Ludo room: rolls and token moves through the engine', () => ludoScenario(alice, bob));
   if (wants('tod')) await scenario('Truth or Dare room: choose, perform, vote, score', () => truthOrDareScenario(alice, bob));
+  if (wants('wyr')) await scenario('Would You Rather room: everyone answers, majority scores', () => wouldYouRatherScenario(alice, bob));
   if (wants('song')) await scenario('Guess the Song availability is stated honestly in the lobby', () => guessTheSongScenario(alice));
+  if (only.includes('smoke')) await scenario('Every signed-in screen renders without errors', () => smokeScenario(alice));
 } catch (error) {
   results.push({ name: 'setup', ok: false, error: error instanceof Error ? error.message : String(error) });
   log('✖ setup —', error instanceof Error ? error.message : String(error));
 } finally {
-  const report = { base: BASE, finishedAt: new Date().toISOString(), results, pageErrors: { alice: alice?.errors ?? [], bob: bob?.errors ?? [] }, logs };
+  const report = { base: BASE, finishedAt: new Date().toISOString(), results, pageErrors: { alice: alice?.errors ?? [], bob: bob?.errors ?? [] }, network: { alice: alice?.network ?? [], bob: bob?.network ?? [] }, logs };
   fs.writeFileSync(path.join(artifacts, 'report.json'), JSON.stringify(report, null, 2));
   for (const actor of [alice, bob]) await actor?.context?.close().catch(() => undefined);
 }
@@ -526,5 +756,8 @@ const failed = results.filter((r) => !r.ok);
 console.log('\n' + results.map((r) => `${r.ok ? '✔' : '✖'} ${r.name}${r.ok ? '' : ` — ${r.error}`}`).join('\n'));
 if (alice?.errors.length || bob?.errors.length) {
   console.log(`\nBrowser errors: alice=${alice?.errors.length ?? 0} bob=${bob?.errors.length ?? 0} (see qa-artifacts/report.json)`);
+}
+for (const actor of [alice, bob]) {
+  if (actor?.network?.length) console.log(`\n${actor.name} failed requests:\n` + actor.network.map((n) => `  ${n.status} ${n.method} ${n.url} ${n.body}`).join('\n'));
 }
 process.exit(failed.length ? 1 : 0);

@@ -226,3 +226,40 @@ so and offers Add to Home Screen. For the stores:
 
 ## 11. Test accounts
 Create accounts through the app (each needs a real inbox for verification). Never insert fake users into `auth.users`.
+
+## 12. Push notifications (phones and browsers, app closed)
+
+Delivery is done by the `push-dispatch` Edge Function, fed by database triggers on `notifications`, `messages` and
+`call_participants` (incoming calls). Three channels:
+
+| Channel | Works when | What the owner must provide |
+| --- | --- | --- |
+| **Website / installed web app** (Chrome, Edge, Firefox, Samsung Internet; Safari on iPhone only after Add to Home Screen) | ✅ now — VAPID keys are in the function secrets (`VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT`), the public key ships in `src/constants/push.ts`, the service worker shows notifications and opens the right screen | nothing; users tap **Turn on notifications** in Settings → Notifications (or the banner on the Notifications screen) |
+| **Android APK** | after the owner adds Firebase | 1. Firebase console → create project → Add Android app with package `com.friendzy.app` → download `google-services.json`. 2. GitHub → repository Settings → Secrets → Actions → `GOOGLE_SERVICES_JSON` = the file's content. 3. Firebase → Project settings → Cloud Messaging → "Manage service accounts" → create a key (JSON) and upload it at https://expo.dev/accounts/[account]/projects/friendzy/credentials → Android → FCM V1 service account key. 4. Re-run the Android APK workflow; install the new APK; Settings → Notifications → **Allow notifications** → **Send me a test notification**. |
+| **iPhone app** | after the owner has an Apple Developer account | `eas credentials` (APNs key) on the EAS project `026ee88e-cff5-49eb-905a-5e8212fa71d9`; EAS/TestFlight build. |
+
+The Expo project id (`026ee88e-cff5-49eb-905a-5e8212fa71d9`) is in `app.config.ts`; the Android workflow passes it as
+`EAS_PROJECT_ID`. Without `google-services.json` the APK installs and works but Settings → Notifications says
+"Notifications not available here … made without the Firebase configuration" instead of pretending.
+
+Verify the pipeline from SQL (pg_net keeps the function's answers): `select status_code, content::text from net._http_response
+order by id desc limit 5;` after `select public.request_test_notification();` — expect `{"ok":true,"expo":N,"web":M}`.
+Rotate the VAPID pair with `node -e` (see scripts/qa/webpush-selftest.ts) → update the three secrets →
+`EXPO_PUBLIC_VAPID_PUBLIC_KEY` on Netlify → redeploy; browsers re-subscribe on their next visit.
+
+**Web Push library.** `push-dispatch` uses a vendored copy of `@negrel/webpush` (MIT) at
+`supabase/functions/_shared/webpush.vendored.js` (types in `webpush.vendored.d.ts`). It is vendored on purpose: a
+deploy made through the Supabase Management API cannot resolve `jsr:` imports at boot (v15 of the function failed with
+`BOOT_ERROR` until the library was inlined). Regenerate it with `npm run functions:vendor-webpush` (needs Deno) and
+re-run `VAPID_KEYS_FILE=… deno run -A scripts/qa/webpush-selftest.ts`, which verifies the VAPID signature and decrypts
+the aes128gcm body with an independent RFC 8291 implementation.
+
+**Deploying `push-dispatch` and `game-engine`.** Both import shared files, so deploy either with the CLI
+(`supabase functions deploy …`, which bundles the folder) or, when deploying through the Management API / dashboard,
+paste the single-file bundle produced by `npm run functions:bundle` (`.expo/function-bundles/<slug>.ts`). The bundle is
+what runs in production; the sources stay the place to edit.
+
+**Checking that pushes go out.** Every trigger call and its response is recorded by `pg_net`:
+`select status_code, content::text, created from net._http_response order by id desc limit 5;` — `200 {"ok":true,"expo":n,"web":m}`
+means the dispatcher ran (`n`/`m` = pushes accepted by Expo / the browser push services). A `503 BOOT_ERROR` means the
+function does not start; a `401` means `PUSH_WEBHOOK_SECRET` differs between the Vault and the function secrets.

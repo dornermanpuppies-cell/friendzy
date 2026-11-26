@@ -111,6 +111,12 @@ export function createRoundsEngine(kind: RoundsKind, slug: string): GameEngine<R
   return {
     slug,
 
+    // Everyone answers at the same time: an answer sent against a version that just changed because
+    // someone else answered must not be rejected as stale.
+    concurrent(move) {
+      return move.type === 'answer';
+    },
+
     init(ctx, options) {
       const rounds = (options.rounds as RoundSpec[] | undefined) ?? [];
       if (ctx.players.length < 2) throw new GameError('INVALID_PLAYERS', 'This game needs at least 2 players.');

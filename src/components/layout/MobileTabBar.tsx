@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@/components/ui/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { TabListProps, TabTriggerSlotProps } from 'expo-router/ui';
 import { type PropsWithChildren } from 'react';

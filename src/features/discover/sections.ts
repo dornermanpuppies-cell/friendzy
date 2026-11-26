@@ -1,4 +1,4 @@
-import type { Ionicons } from '@expo/vector-icons';
+import type { Ionicons } from '@/components/ui/Ionicons';
 
 import type { DiscoverSection } from '@/types/social';
 

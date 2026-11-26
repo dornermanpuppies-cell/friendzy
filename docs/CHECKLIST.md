@@ -19,10 +19,10 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | LiveKit webhook registration & verification tool (`scripts/livekit-webhook.mjs`: `status` / `register` / `test`) | ✅ tool · 🔑 registration needs a LiveKit user session (`lk cloud auth --user-auth`), not the API key | API key/secret verified against the LiveKit API (ListRooms OK); endpoint currently answers 404 (function not deployed) |
 | Shared game engines (Ludo, Chess via chess.js, Trivia/WYR/Guess-the-song rounds, Truth or Dare) | ✅ | `supabase/functions/_shared/games`, reused by the app for legal-move previews |
 
-> **Deploy status (2026-11-26):** everything below is committed locally and verified against the live Supabase project, but the
-> website and the Android APK still run the build from before end-to-end encryption until `main` is pushed (the Netlify API
-> token was revoked, so the GitHub push is the only way to publish). Until then the live website cannot send messages
-> (the database now requires encrypted sends) and calls/games cannot reach the Edge Functions from a browser.
+> **Deploy status (2026-11-26, later):** pushed to `main` (f9e6ae8); Netlify published the new build within a minute and the
+> two-account browser harness passed all 8 scenarios against https://friendzychat.netlify.app (bell, encrypted chat, voice
+> call, Trivia, Chess, Ludo, Truth or Dare, Guess-the-Song notice). The Android APK rebuilds from the same push
+> (GitHub Actions → Releases); phones must install the new APK to get the fixes.
 
 ## Phase 1 — Foundation
 | Area | Item | Status |

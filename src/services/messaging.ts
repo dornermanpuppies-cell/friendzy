@@ -5,6 +5,7 @@ import { invalidateRecipients } from '@/lib/e2ee/devices';
 import { newFileKey } from '@/lib/e2ee/files';
 import { encryptLocalFile, secretFromMaterial } from '@/lib/e2ee/io';
 import { decryptMessage, decryptMessages, sealForConversation, type AttachmentSecret, type EnvelopePayloadV1 } from '@/lib/e2ee/messages';
+import { acquireBroadcastChannel, privateChannel, subscribeShared } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import { generateVideoThumbnail } from '@/services/thumbnail';
 import { guessMime, objectPath, prepareImage, uploadFile, type UploadProgress } from '@/services/upload';
@@ -434,8 +435,8 @@ export interface ConversationRealtimeHandlers {
 
 /** Subscribes to everything happening inside one open conversation. */
 export function subscribeToConversation(conversationId: string, handlers: ConversationRealtimeHandlers): { channel: RealtimeChannel; sendTyping: (typing: boolean, name: string, userId: string) => void; unsubscribe: () => void } {
-  const channel = supabase
-    .channel(`chat:${conversationId}`, { config: { broadcast: { self: false } } })
+  // Database events: a channel of our own (topics must not be shared between listeners).
+  const channel = privateChannel(`chat-db:${conversationId}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) =>
       handlers.onMessageInsert?.(payload.new as { id: string; conversation_id: string; sender_id: string | null; created_at: string }),
     )
@@ -450,24 +451,30 @@ export function subscribeToConversation(conversationId: string, handlers: Conver
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_members', filter: `conversation_id=eq.${conversationId}` }, (payload) =>
       handlers.onMemberUpdate?.(payload.new as { conversation_id: string; user_id: string; last_read_at: string; last_delivered_at: string }),
     )
-    .on('broadcast', { event: 'typing' }, ({ payload }) => handlers.onTyping?.(payload as { user_id: string; name: string; typing: boolean }))
     .subscribe();
+
+  // Typing indicators: a broadcast topic shared by everyone in the conversation (and by any
+  // second copy of this screen on the same device).
+  const typingTopic = `chat:${conversationId}`;
+  const typing = acquireBroadcastChannel(typingTopic);
+  typing.channel.on('broadcast', { event: 'typing' }, ({ payload }) => handlers.onTyping?.(payload as { user_id: string; name: string; typing: boolean }));
+  subscribeShared(typingTopic);
 
   return {
     channel,
-    sendTyping: (typing, name, userId) => {
-      channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: userId, name, typing } }).catch(() => undefined);
+    sendTyping: (typingNow, name, userId) => {
+      typing.channel.send({ type: 'broadcast', event: 'typing', payload: { user_id: userId, name, typing: typingNow } }).catch(() => undefined);
     },
     unsubscribe: () => {
       supabase.removeChannel(channel).catch(() => undefined);
+      typing.release();
     },
   };
 }
 
 /** Global listener for new messages in any of my conversations (RLS-filtered server-side). */
 export function subscribeToInbox(onMessage: (row: { id: string; conversation_id: string; sender_id: string | null; created_at: string }) => void): () => void {
-  const channel = supabase
-    .channel('inbox:messages')
+  const channel = privateChannel('inbox:messages')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => onMessage(payload.new as { id: string; conversation_id: string; sender_id: string | null; created_at: string }))
     .subscribe();
   return () => {

@@ -12,6 +12,9 @@ export interface GameInfo {
   max_players: number;
   turn_seconds: number;
   playing_now?: number;
+  /** False when the content bank behind the game is too small; `reason` says what is missing. */
+  playable?: boolean;
+  reason?: string | null;
 }
 
 export interface GameParticipant extends AuthorCard {

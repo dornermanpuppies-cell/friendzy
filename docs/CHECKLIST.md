@@ -2,7 +2,7 @@
 
 Status legend: ✅ done & tested · 🧪 built, needs live verification · 🔑 blocked on credentials/config · ⏳ not built
 
-"Done & tested" for the database means every table, policy and RPC passed the SQL test-suite (`npm run db:test`, 15 suites, 111 tables with RLS)
+"Done & tested" for the database means every table, policy and RPC passed the SQL test-suite (`npm run db:test`, 16 suites, 111 tables with RLS)
 against a local PostgreSQL that mimics Supabase. "Needs live verification" means the UI and backend exist and typecheck, but could not be
 exercised end-to-end from the build sandbox (no device / camera / store, and the migrations are applied by the project owner).
 
@@ -10,7 +10,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| 15 migrations `supabase/migrations/20261125000001…0015` (foundation, social, messaging, calls, videos, economy, live, games, subscriptions, admin, LiveKit webhooks, hardening, friend discovery & matching, push webhooks, end-to-end encryption) | ✅ all applied on the live project and recorded in the CLI migration history (2026-11-26) | combined hand-off file: `supabase/FRIENDZY_ALL_MIGRATIONS.sql` |
+| 16 migrations `supabase/migrations/20261125000001…0016` (foundation, social, messaging, calls, videos, economy, live, games, subscriptions, admin, LiveKit webhooks, hardening, friend discovery & matching, push webhooks, end-to-end encryption, calls & games reliability) | ✅ all applied on the live project and recorded in the CLI migration history (2026-11-26); pg_cron runs `expire_stale_calls` (1 min), `expire_game_rooms` (5 min), `expire_messages` (10 min) | combined hand-off file: `supabase/FRIENDZY_ALL_MIGRATIONS.sql` |
 | SQL tests `supabase/tests/0001…0014` + RLS-on-every-table check | ✅ | `npm run db:test` |
 | GitHub Actions (`ci.yml`: typecheck/lint/tests/SQL suite/web export · `supabase-deploy.yml`: migrations + functions · `android-apk.yml`: signed Android APK published as a GitHub release) and Netlify build (`netlify.toml` + generated redirects, `404.html`) | ✅ CI green on `main` · 🔑 `android-apk.yml` needs the `EXPO_PUBLIC_SUPABASE_ANON_KEY` repository variable; download link needs a public repository | deploy workflow needs three repository secrets |
 | Website Download page: installable web app (manifest, service worker, install prompt) + Android APK from the latest GitHub release (version, size, update check inside the app) + honest iOS copy | 🧪 | `src/app/(marketing)/download.tsx`, `src/services/androidRelease.ts`, `plugins/withAndroidReleaseSigning.js` |
@@ -18,6 +18,11 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | LiveKit webhook: SDK signature verification, idempotent storage (`livekit_webhook_events`), live/call lifecycle sync, recordings (`livekit_egresses`) | ✅ deployed with the LiveKit secrets (rejects unsigned deliveries with 401) · 🔑 registration in LiveKit Cloud still needs a signed-in LiveKit user | `npm run livekit:webhook:register` / dashboard, then `npm run livekit:webhook:test` |
 | LiveKit webhook registration & verification tool (`scripts/livekit-webhook.mjs`: `status` / `register` / `test`) | ✅ tool · 🔑 registration needs a LiveKit user session (`lk cloud auth --user-auth`), not the API key | API key/secret verified against the LiveKit API (ListRooms OK); endpoint currently answers 404 (function not deployed) |
 | Shared game engines (Ludo, Chess via chess.js, Trivia/WYR/Guess-the-song rounds, Truth or Dare) | ✅ | `supabase/functions/_shared/games`, reused by the app for legal-move previews |
+
+> **Deploy status (2026-11-26):** everything below is committed locally and verified against the live Supabase project, but the
+> website and the Android APK still run the build from before end-to-end encryption until `main` is pushed (the Netlify API
+> token was revoked, so the GitHub push is the only way to publish). Until then the live website cannot send messages
+> (the database now requires encrypted sends) and calls/games cannot reach the Edge Functions from a browser.
 
 ## Phase 1 — Foundation
 | Area | Item | Status |
@@ -53,11 +58,13 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | Item | Status |
 | --- | --- |
 | 1:1 & group chats, attachments, voice notes, GIFs (🔑 Tenor key), stickers, replies, edit/delete, reactions, forward, star, pin, search, read receipts, typing, archive/mute/pin/unread, disappearing messages, wallpapers, message requests, invite links | 🧪 |
+| Notifications bell: fixed 2026-11-26 — opening the screen while the badge counter listened on the same realtime channel threw `cannot add postgres_changes callbacks … after subscribe()` (blank screen on web, app closed on Android). Every database listener now gets its own channel (`src/lib/realtime.ts`); covered by `scripts/qa/e2e.mjs --only notifications` | ✅ |
 | End-to-end encryption: per-device X25519/Ed25519 keys (10 per user, revocable), sealed envelopes with per-message keys, server-side recipient check (no plaintext fallback, plaintext RPCs revoked), encrypted attachments (chunked, streamed on phones), inbox previews / replies / edits / forwards / story replies / search / media gallery all handled on-device, security codes + trust-on-first-use notices, Settings → End-to-end encryption (devices, limits), generic push text, reports carry reporter-decrypted text | ✅ DB (`0015_e2ee`, 70+ assertions) · ✅ crypto (12 Jest cases) · 🧪 two-account UI test |
 
 ## Phase 4 — Communication
 | Item | Status |
 | --- | --- |
+| Voice/video calls verified end to end in two real browser sessions (ring → banner → accept → both connected through LiveKit → hang-up → history): `node scripts/qa/e2e.mjs --only call`. Fixed on 2026-11-26: Edge Function CORS blocked every browser call to `livekit-token`/`game-engine`/`admin-actions` (custom `x-friendzy-platform` header); duplicate realtime channel names threw inside screens; stale ringing/active calls now expire (`expire_stale_calls`, cron + lazily in `start_call`), re-calling from a dead call rings again, `get_ringing_call` shows the banner when the app opens mid-ring | ✅ |
 | LiveKit token endpoint (server-side secret), voice/video calls 1:1 & group, incoming overlay, history | 🧪 (needs a development build; web works in browser) |
 
 ## Phase 5 — Video & creators
@@ -80,6 +87,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 ## Phase 7 — Games & monetisation
 | Item | Status |
 | --- | --- |
+| Games verified in two real browser sessions through the live game engine (`node scripts/qa/e2e.mjs --only games`): Trivia (answer, reveal, auto-advance, results), Chess (legal moves, resign, winner), Ludo (rolls, token moves, finish), Truth or Dare (choose, perform, vote, score). Fixed on 2026-11-26: Edge Function CORS blocked every browser call to the engine; the host's first taps after "Start" were silently dropped while the start request was still in flight (host always scored 0 in trivia); Guess the Song is shown as "coming soon" with the reason until the sound library has 4 sounds (`game_content_status`); abandoned rooms are cancelled automatically (`expire_game_rooms`, cron + lazily) so nobody is stuck behind ALREADY_IN_GAME; realtime channels per listener; engine unit tests (18 cases) + SQL reliability suite; board polish: animated dice, pulsing legal tokens, last-move ring, captured pieces & check highlight in chess, answered/points badges, haptics on your turn | ✅ |
 | Games lobby (public/private rooms, codes, invites, ready, chat), server-authoritative engine, Ludo, Chess, Trivia, Would You Rather, Truth or Dare, Guess the Song, leaderboards, rematch | 🧪 (Guess the Song needs ≥4 sounds in the library) |
 | Wallet: coin balance, packages, transactions, gifts sent/received, realtime | 🧪 |
 | Coin purchases via RevenueCat (native) → webhook → ledger | 🔑 RevenueCat SDK keys, products, webhook auth |
@@ -106,7 +114,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 - `npm run web:export` — static site builds.
 
 ## Open configuration items (owner action required)
-1. ~~Run the migrations~~ ✅ 0001–0015 applied and recorded in the CLI history (2026-11-26). Nothing to run.
+1. ~~Run the migrations~~ ✅ 0001–0016 applied and recorded in the CLI history (2026-11-26). Nothing to run.
 1b. ~~Push the repository to GitHub and connect it to Netlify~~ ✅ · ~~Netlify public variables~~ ✅ corrected through the Netlify API (the two URLs had been pasted into the wrong fields); the live site passes `npm run site:check` and Supabase accepts the baked anon key · ~~Supabase Auth URLs~~ ✅ set. ~~First administrator~~ ✅ created through the Auth Admin API and promoted with `bootstrap_first_admin` (2026-11-26); the one-time bootstrap function and its secret were deleted afterwards.
 1c. ~~Android download~~ ✅ repository variable set, first release published (`android-v0.1.0-4`, test-signed), repository made public (2026-11-26) so the website's Download page shows the APK, and the four `ANDROID_KEYSTORE_*` secrets installed (4096-bit RSA upload key, valid to 2054; the values live only in the owner's copy of `.env.android-signing`). Builds from now on are signed with the Friendzy upload key — phones with the test-signed build must uninstall once.
 2. ~~Deploy Edge Functions~~ ✅ all seven deployed with LiveKit, SITE_URL, push and RevenueCat secrets. Still to add (owner, dashboard → Edge Functions → Secrets): `RESEND_API_KEY` + `SEND_EMAIL_HOOK_SECRET` (then enable the Send Email hook). ~~RevenueCat webhook registration~~ ✅ URL entered in RevenueCat with the `REVENUECAT_WEBHOOK_AUTH` header; the owner reports the test delivery as successful (2026-11-26). Rotate the LiveKit API key pair that was shared in chat and update `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.

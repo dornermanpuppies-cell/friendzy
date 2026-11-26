@@ -156,3 +156,43 @@ Nothing to configure or to keep secret on the server: devices generate their own
 - There is no server-side way to read, recover or reset message content. Support can only help users re-send from a device
   that still has the keys.
 - Admin moderation of sealed messages relies on the reporter's device attaching the decrypted text to the report.
+
+## Edge Functions and browsers (CORS)
+
+The app sends a custom `x-friendzy-platform` header with every Supabase request. Browsers therefore send a CORS
+preflight to Edge Functions, and the functions must list that header in `Access-Control-Allow-Headers`
+(`livekit-token`, `game-engine`, `admin-actions` do; webhooks are never called from a browser). If a new function is
+added, copy the `corsHeaders` block from `supabase/functions/livekit-token/index.ts` — otherwise calls, games and admin
+actions silently fail on the website while working in the Android app.
+
+`game-engine` imports shared TypeScript (`supabase/functions/_shared/games`). The Supabase Management API accepts one
+source body per function, so deploy it from the bundle: `node scripts/bundle-function.mjs game-engine` (esbuild, `npm:`
+imports stay external) and upload the generated file as the function body. `supabase functions deploy` from the CLI
+bundles automatically.
+
+## Scheduled housekeeping (pg_cron)
+
+Enabled on the live project. Jobs (see migration 0016): `friendzy_expire_calls` every minute (`expire_stale_calls()` —
+unanswered rings → missed + notification, abandoned active calls → ended), `friendzy_expire_game_rooms` every 5 minutes
+(idle waiting rooms and running games whose turn clock ran out 30 min ago → cancelled), `friendzy_expire_messages` every
+10 minutes (disappearing messages). On a project without pg_cron the same functions run lazily from `start_call`,
+`create_game_room` and `join_game_room`.
+
+## Browser QA harness (two real accounts)
+
+`scripts/qa/e2e.mjs` drives two headless Chromium profiles through the notifications bell, an end-to-end encrypted chat,
+a voice call (fake camera/microphone, real LiveKit room) and Trivia / Chess / Ludo / Truth-or-Dare rooms against a running
+build and the live Supabase project. Credentials come from the environment (`QA_ALICE_*`, `QA_BOB_*`, never from the
+repository); `scripts/qa/serve-dist.mjs` serves a static export with Netlify-style rewrites;
+`scripts/netlify-deploy.mjs` ships `dist/` to Netlify through its API (`NETLIFY_AUTH_TOKEN`) without waiting for a git push.
+Install once with `npm i --no-save playwright && npx playwright install --with-deps chromium`.
+
+## LiveKit server address
+
+`LIVEKIT_URL` (Edge Function secret) must be the full WebSocket address of the LiveKit Cloud project, e.g.
+`wss://friendzy-9kc7beej.livekit.cloud`. The `livekit-token` function hands this value to every caller and the app
+connects to it, so a wrong value breaks calls and lives on every platform. On 2026-11-26 the secret contained
+`http://-9kc7beej.livekit.cloud` (prefix lost, wrong scheme) and no call could ever connect; it was corrected, and the
+app now validates the address and falls back to `EXPO_PUBLIC_LIVEKIT_URL` when the server value is unusable
+(`resolveLiveKitUrl` in `src/services/calls.ts`, unit-tested). Check with a signed-in user:
+`POST /functions/v1/livekit-token {"room":"call_<id>"}` must return `"url":"wss://…livekit.cloud"`.

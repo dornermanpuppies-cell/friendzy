@@ -1,3 +1,4 @@
+import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { Json } from '@/types/database';
 import type { CoinPackage, EarningsSummary, GiftItem, GiftRecord, GiftTarget, PublicSettings, Wallet, WalletTransaction, WithdrawalRequest } from '@/types/economy';
@@ -79,8 +80,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
 }
 
 export function subscribeToWallet(userId: string, onChange: () => void): () => void {
-  const channel = supabase
-    .channel(`wallet:${userId}`)
+  const channel = privateChannel(`wallet:${userId}`)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'wallets', filter: `user_id=eq.${userId}` }, onChange)
     .subscribe();
   return () => {

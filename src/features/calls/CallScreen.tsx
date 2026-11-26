@@ -59,9 +59,12 @@ function InCall({ call, onHangUp }: { call: CallRecord; onHangUp: () => void }) 
   }, [call.started_at]);
 
   const videoTracks = tracks.filter(isTrackReference);
-  const remoteParticipants = participants.filter((p) => p.identity !== user?.id);
   const cards = call.participants;
   const cardFor = (identity: string) => cards.find((c) => c.user.id === identity)?.user;
+  // Only the people invited to this call get a tile. Anything else in the LiveKit room
+  // (server-side agents, recorders, a stale duplicate connection) is never shown.
+  const remoteParticipants = participants.filter((p) => p.identity !== user?.id && Boolean(cardFor(p.identity)));
+  const hiddenIdentities = participants.filter((p) => p.identity !== user?.id && !cardFor(p.identity)).map((p) => p.identity || '(empty)');
 
   const toggleMic = () => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled).catch(() => undefined);
   const toggleCam = () => localParticipant.setCameraEnabled(!isCameraEnabled).catch(() => undefined);
@@ -112,7 +115,7 @@ function InCall({ call, onHangUp }: { call: CallRecord; onHangUp: () => void }) 
           const name = isMe ? 'You' : (card?.display_name ?? p.name ?? 'Participant');
           const muted = isMe ? !isMicrophoneEnabled : !p.isMicrophoneEnabled;
           return (
-            <View key={p.identity} style={[styles.tile, { width: tileWidth, height: tileHeight }, p.isSpeaking && styles.tileSpeaking]}>
+            <View key={p.identity} testID={`call-tile:${isMe ? 'me' : 'remote'}:${p.identity}`} style={[styles.tile, { width: tileWidth, height: tileHeight }, p.isSpeaking && styles.tileSpeaking]}>
               {track && (isMe ? isCameraEnabled : p.isCameraEnabled) ? (
                 <VideoTile trackRef={track} mirror={isMe} style={StyleSheet.absoluteFill} />
               ) : (
@@ -141,6 +144,7 @@ function InCall({ call, onHangUp }: { call: CallRecord; onHangUp: () => void }) 
         ) : null}
       </View>
 
+      {hiddenIdentities.length ? <View testID={`call-hidden:${hiddenIdentities.join(',')}`} style={{ height: 0 }} /> : null}
       <View style={[styles.controls, { paddingBottom: insets.bottom + spacing.lg }]}>
         <ControlButton icon={isMicrophoneEnabled ? 'mic' : 'mic-off'} label={isMicrophoneEnabled ? 'Mute' : 'Unmute'} active={!isMicrophoneEnabled} onPress={toggleMic} />
         {call.kind === 'video' ? <ControlButton icon={isCameraEnabled ? 'videocam' : 'videocam-off'} label={isCameraEnabled ? 'Camera' : 'Camera off'} active={!isCameraEnabled} onPress={toggleCam} /> : null}

@@ -86,6 +86,9 @@ decisions (trim, speed, filter, overlays, sound mix, duet/stitch) are stored as 
 no server transcoding.
 
 ## Realtime & notifications
+- One realtime channel per listener: `privateChannel()` in `src/lib/realtime.ts` gives every `postgres_changes` subscription a
+  unique topic (supabase-js reuses channel instances by topic and throws when a second screen adds listeners to a channel that is
+  already subscribed). Only typing indicators share a topic (`acquireBroadcastChannel`, reference counted).
 In-app notifications are rows in `notifications` (preferences respected by `create_notification`). Push delivery is triggered by Database
 Webhooks calling `push-dispatch`, which reads `user_devices` tokens registered by the app.
 

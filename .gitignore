@@ -65,3 +65,6 @@ google-play-service-account.json
 
 # chat attachments mirrored into the workspace — never part of the repo
 /uploads/
+
+# Browser QA harness output
+qa-artifacts/

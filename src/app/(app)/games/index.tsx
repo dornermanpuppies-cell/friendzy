@@ -136,21 +136,47 @@ export default function GamesScreen() {
             Play together
           </Text>
           <View style={styles.grid}>
-            {data.games.map((g) => (
-              <Pressable key={g.slug} onPress={() => { setPicked(g); setMaxPlayers(null); setIsPrivate(false); }} style={[styles.gameCard, { width: `${100 / columns - 2}%`, backgroundColor: colors.surface, borderColor: colors.border }]} accessibilityLabel={`Play ${g.name}`}>
-                <Text style={{ fontSize: 36 }}>{g.emoji}</Text>
-                <Text variant="h4" style={{ marginTop: spacing.xs }}>
-                  {g.name}
-                </Text>
-                <Text variant="caption" color="textMuted" numberOfLines={3}>
-                  {g.description}
-                </Text>
-                <Text variant="caption" color="primary" style={{ marginTop: spacing.xs }}>
-                  {g.min_players === g.max_players ? `${g.min_players} players` : `${g.min_players}–${g.max_players} players`}
-                  {g.playing_now ? ` · ${g.playing_now} playing now` : ''}
-                </Text>
-              </Pressable>
-            ))}
+            {data.games.map((g) => {
+              const playable = g.playable !== false;
+              return (
+                <Pressable
+                  key={g.slug}
+                  onPress={() => {
+                    if (!playable) {
+                      toast.info(`${g.name} is not available yet`, g.reason ?? 'Its content bank is still too small.');
+                      return;
+                    }
+                    setPicked(g);
+                    setMaxPlayers(null);
+                    setIsPrivate(false);
+                  }}
+                  style={[styles.gameCard, { width: `${100 / columns - 2}%`, backgroundColor: colors.surface, borderColor: colors.border }, !playable && { opacity: 0.6 }]}
+                  accessibilityLabel={playable ? `Play ${g.name}` : `${g.name} (not available yet)`}
+                  accessibilityState={{ disabled: !playable }}
+                >
+                  <Text style={{ fontSize: 36 }}>{g.emoji}</Text>
+                  <Text variant="h4" style={{ marginTop: spacing.xs }}>
+                    {g.name}
+                  </Text>
+                  <Text variant="caption" color="textMuted" numberOfLines={3}>
+                    {g.description}
+                  </Text>
+                  {playable ? (
+                    <Text variant="caption" color="primary" style={{ marginTop: spacing.xs }}>
+                      {g.min_players === g.max_players ? `${g.min_players} players` : `${g.min_players}–${g.max_players} players`}
+                      {g.playing_now ? ` · ${g.playing_now} playing now` : ''}
+                    </Text>
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: spacing.xs }}>
+                      <Ionicons name="time-outline" size={13} color={colors.textMuted} style={{ marginTop: 2, marginRight: 4 }} />
+                      <Text variant="caption" color="textMuted" style={{ flex: 1 }}>
+                        Coming soon · {g.reason ?? 'needs more content'}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
           </View>
 
           <Text variant="h4" style={styles.section}>

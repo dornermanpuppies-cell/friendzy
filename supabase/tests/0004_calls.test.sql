@@ -18,7 +18,10 @@ begin
   v_call := public.start_call(v_dm, 'voice');
   perform tests.assert((v_call->>'status') = 'ringing' and (v_call->>'room_name') = 'call_' || (v_call->>'id'), 'call created with room name');
   perform tests.assert(jsonb_array_length(v_call->'participants') = 2 and (v_call->>'my_state') = 'joined', 'initiator joined, callee invited');
-  perform tests.assert((public.start_call(v_dm, 'video')->>'id') = (v_call->>'id'), 'second start joins the ongoing call');
+  -- The invited side calling back joins the ongoing call; the initiator calling again (lost app) re-rings — see 0016.
+  perform tests.as_user(bob);
+  perform tests.assert((public.start_call(v_dm, 'video')->>'id') = (v_call->>'id'), 'callee starting a call joins the ongoing call');
+  perform tests.as_user(alice);
   perform tests.assert_raises($$insert into public.calls (conversation_id, kind) values (gen_random_uuid(), 'voice')$$, 'calls not directly insertable', 'permission denied');
 
   -- Outsider cannot see it

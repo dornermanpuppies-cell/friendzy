@@ -543,6 +543,8 @@ export type Database = {
       edit_encrypted_message: { Args: { p_id: string; p_envelope: Json }; Returns: Json };
       // ---- Phase 4: calls ----
       start_call: { Args: { p_conversation: string; p_kind?: string }; Returns: Json };
+      get_ringing_call: { Args: Record<string, never>; Returns: Json };
+      game_content_status: { Args: { p_game: string }; Returns: Json };
       answer_call: { Args: { p_call: string }; Returns: Json };
       decline_call: { Args: { p_call: string }; Returns: undefined };
       leave_call: { Args: { p_call: string; p_reason?: string | null }; Returns: undefined };

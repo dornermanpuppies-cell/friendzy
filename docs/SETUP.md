@@ -15,7 +15,7 @@ cp .env.example .env.local      # fill EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SU
 `.env.local` is gitignored. Only `EXPO_PUBLIC_*` values go there.
 
 ## 3. Database
-**Status (2026-11-26): all 15 migrations (0001–0015, the last one adds end-to-end encrypted messaging) are applied on project `gwdpsrjmfrgcloacvdlg`** and the
+**Status (2026-11-26): all 16 migrations (0001–0016; 0015 adds end-to-end encrypted messaging, 0016 call/game reliability + pg_cron housekeeping) are applied on project `gwdpsrjmfrgcloacvdlg`** and the
 CLI migration history (`supabase_migrations.schema_migrations`) lists them, so `supabase db push --dry-run` reports nothing
 pending and the GitHub `supabase-deploy.yml` workflow will only ever apply *new* files. Verified live: 111 public tables, every
 one with RLS; `discover_people`, `search_people`, `match_find` and the other discovery RPCs answer; `match_queue` is in the

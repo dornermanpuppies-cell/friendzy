@@ -1,3 +1,4 @@
+import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { Json } from '@/types/database';
 import type { EngineAction, EngineResponse, GameLobby, GameMessage, GameRoom, GameSlug, Leaderboard } from '@/types/games';
@@ -110,8 +111,7 @@ export async function engineAction(action: EngineAction, roomId: string, payload
 }
 
 export function subscribeToGameRoom(roomId: string, handlers: { onRoom?: () => void; onMessage?: (message: { id: number; user_id: string | null; text: string; created_at: string }) => void }): () => void {
-  const channel = supabase
-    .channel(`game:${roomId}`)
+  const channel = privateChannel(`game:${roomId}`)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'game_rooms', filter: `id=eq.${roomId}` }, () => handlers.onRoom?.())
     .on('postgres_changes', { event: '*', schema: 'public', table: 'game_participants', filter: `room_id=eq.${roomId}` }, () => handlers.onRoom?.())
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'game_messages', filter: `room_id=eq.${roomId}` }, (payload) => handlers.onMessage?.(payload.new as { id: number; user_id: string | null; text: string; created_at: string }))
@@ -122,8 +122,7 @@ export function subscribeToGameRoom(roomId: string, handlers: { onRoom?: () => v
 }
 
 export function subscribeToGameInvites(userId: string, onInvite: () => void): () => void {
-  const channel = supabase
-    .channel(`game-invites:${userId}`)
+  const channel = privateChannel(`game-invites:${userId}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'game_participants', filter: `user_id=eq.${userId}` }, onInvite)
     .subscribe();
   return () => {

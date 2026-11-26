@@ -313,7 +313,7 @@ export default function ChatScreen() {
                   ) : null}
                 </View>
               </Pressable>
-              {!conversation?.is_request ? (
+              {conversation && !conversation.is_request ? (
                 <>
                   <Pressable onPress={() => handleCall('voice')} style={styles.headerBtn} accessibilityLabel="Voice call">
                     <Ionicons name="call-outline" size={22} color={light ? palette.ink : palette.white} />

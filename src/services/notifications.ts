@@ -1,5 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
+import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { NotificationRow, ProfileCard } from '@/types/database';
 
@@ -60,8 +61,7 @@ export async function deleteNotification(id: string): Promise<void> {
 
 /** Subscribes to new notifications for the signed-in user. Returns an unsubscribe function. */
 export function subscribeToNotifications(userId: string, onInsert: (row: NotificationRow) => void): () => void {
-  const channel: RealtimeChannel = supabase
-    .channel(`notifications:${userId}`)
+  const channel: RealtimeChannel = privateChannel(`notifications:${userId}`)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },

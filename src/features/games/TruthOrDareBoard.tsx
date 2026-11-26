@@ -7,7 +7,7 @@ import { radius, spacing } from '@/theme/tokens';
 import type { GameRoom } from '@/types/games';
 
 import type { TodState } from '../../../supabase/functions/_shared/games/truth_or_dare.ts';
-import { PlayersStrip, TurnBanner, participantById, useCountdown } from './GameShared';
+import { PlayersStrip, TurnBanner, participantById, useCountdown, useTurnHaptics } from './GameShared';
 
 export function TruthOrDareBoard({ room, myId, onMove, busy }: { room: GameRoom; myId: string; onMove: (move: Record<string, unknown>) => Promise<void>; busy: boolean }) {
   const { colors } = useTheme();
@@ -18,6 +18,14 @@ export function TruthOrDareBoard({ room, myId, onMove, busy }: { room: GameRoom;
   const player = participantById(room, current);
   const total = state.phase === 'choose' ? state.chooseSeconds : state.phase === 'perform' ? state.performSeconds : state.voteSeconds;
   const myVote = state.votes?.[myId];
+  useTurnHaptics(me && state.phase === 'choose');
+  const badges: Record<string, string> = {};
+  if (state.phase === 'vote') {
+    for (const user of state.order) {
+      if (state.left.includes(user) || user === current) continue;
+      badges[user] = state.votes?.[user] === 'done' ? '✓' : state.votes?.[user] === 'skip' ? '✗' : '…';
+    }
+  }
   const label = state.phase === 'done' ? 'Game over' : state.phase === 'choose' ? (me ? 'Your turn — truth or dare?' : `${player?.display_name ?? '…'} is choosing…`) : state.phase === 'perform' ? (me ? `Your ${state.current?.kind} — go!` : `${player?.display_name} is doing a ${state.current?.kind}`) : me ? 'The others are voting…' : `Did ${player?.display_name} deliver?`;
 
   return (
@@ -82,7 +90,7 @@ export function TruthOrDareBoard({ room, myId, onMove, busy }: { room: GameRoom;
         </View>
       ) : null}
       <View style={{ height: spacing.md }} />
-      <PlayersStrip room={room} scores={state.scores} turnUser={state.phase === 'done' ? null : current} />
+      <PlayersStrip room={room} scores={state.scores} turnUser={state.phase === 'done' ? null : current} badges={badges} />
     </View>
   );
 }

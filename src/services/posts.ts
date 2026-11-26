@@ -1,3 +1,4 @@
+import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import { objectPath, prepareImage, uploadFile, type UploadProgress } from '@/services/upload';
 import { generateVideoThumbnail } from '@/services/thumbnail';
@@ -259,8 +260,7 @@ export async function getTrendingHashtags(limit = 10): Promise<HashtagItem[]> {
 
 /** Subscribes to new top-level comments / replies on a post. */
 export function subscribeToComments(postId: string, onInsert: (commentId: string) => void): () => void {
-  const channel = supabase
-    .channel(`comments:${postId}`)
+  const channel = privateChannel(`comments:${postId}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` }, (payload) => {
       onInsert((payload.new as { id: string }).id);
     })

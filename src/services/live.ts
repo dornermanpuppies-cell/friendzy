@@ -1,3 +1,4 @@
+import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import { objectPath, prepareImage, uploadFile } from '@/services/upload';
 import type { Json } from '@/types/database';
@@ -255,8 +256,7 @@ export interface LiveRealtimeHandlers {
 }
 
 export function subscribeToLive(liveId: string, handlers: LiveRealtimeHandlers): () => void {
-  const channel = supabase
-    .channel(`live:${liveId}`)
+  const channel = privateChannel(`live:${liveId}`)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'live_sessions', filter: `id=eq.${liveId}` }, () => handlers.onSession?.())
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'live_comments', filter: `live_id=eq.${liveId}` }, (payload) => handlers.onComment?.(payload.new as { id: string }))
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'live_comments', filter: `live_id=eq.${liveId}` }, (payload) => handlers.onComment?.(payload.new as { id: string }))

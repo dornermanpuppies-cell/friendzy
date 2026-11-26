@@ -1,3 +1,6 @@
+import { env } from '@/lib/env';
+import { normalizePublicUrl } from '@/lib/publicConfig';
+import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { Json } from '@/types/database';
 import type { AuthorCard } from '@/types/social';
@@ -59,6 +62,13 @@ export async function getCall(callId: string): Promise<CallRecord | null> {
   return (data as unknown as CallRecord | null) ?? null;
 }
 
+/** The call ringing for me right now, if any (used when the app opens or returns to the foreground mid-ring). */
+export async function getRingingCall(): Promise<CallRecord | null> {
+  const { data, error } = await supabase.rpc('get_ringing_call');
+  if (error) throw error;
+  return (data as unknown as CallRecord | null) ?? null;
+}
+
 export async function getActiveCall(conversationId: string): Promise<CallRecord | null> {
   const { data, error } = await supabase.rpc('get_active_call', { p_conversation: conversationId });
   if (error) throw error;
@@ -93,13 +103,31 @@ export async function getLiveKitToken(room: string): Promise<LiveKitCredentials>
     throw new Error(message);
   }
   if (!data || !data.token) throw new Error(data?.error ?? 'Could not get a media token.');
-  return data;
+  return { ...data, url: resolveLiveKitUrl(data.url) };
+}
+
+/**
+ * The media server address comes from the server (LIVEKIT_URL secret). Normalise it to a
+ * wss:// URL and fall back to the build-time EXPO_PUBLIC_LIVEKIT_URL when the server value
+ * is unusable (a misconfigured secret must not take calls and lives down).
+ */
+export function resolveLiveKitUrl(serverValue: string | null | undefined): string {
+  const candidates = [serverValue, env.liveKitUrl];
+  for (const raw of candidates) {
+    const normalized = normalizePublicUrl(raw, 'wss').replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+    try {
+      const parsed = new URL(normalized);
+      if ((parsed.protocol === 'wss:' || parsed.protocol === 'ws:') && /^[a-z0-9]/i.test(parsed.hostname) && parsed.hostname.includes('.')) return normalized;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  throw new Error('The media server address is not configured correctly. Please contact support.');
 }
 
 /** Subscribes to changes of one call (status / participants). */
 export function subscribeToCall(callId: string, onChange: () => void): () => void {
-  const channel = supabase
-    .channel(`call:${callId}`)
+  const channel = privateChannel(`call:${callId}`)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}` }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'call_participants', filter: `call_id=eq.${callId}` }, onChange)
     .subscribe();
@@ -110,8 +138,7 @@ export function subscribeToCall(callId: string, onChange: () => void): () => voi
 
 /** Fires when I am invited to a new call (incoming call). */
 export function subscribeToIncomingCalls(userId: string, onIncoming: (callId: string) => void): () => void {
-  const channel = supabase
-    .channel(`incoming-calls:${userId}`)
+  const channel = privateChannel(`incoming-calls:${userId}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'call_participants', filter: `user_id=eq.${userId}` }, (payload) => {
       const row = payload.new as { call_id: string; state: CallParticipantState };
       if (row.state === 'invited') onIncoming(row.call_id);

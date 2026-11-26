@@ -45,6 +45,7 @@ export function GameRoomScreen({ roomId }: { roomId: string }) {
   const [room, setRoom] = useState<GameRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [messages, setMessages] = useState<GameMessage[]>([]);
@@ -96,18 +97,22 @@ export function GameRoomScreen({ roomId }: { roomId: string }) {
     };
   }, [room?.turn_deadline, room?.status, room?.version, roomId, refresh, room]);
 
+  // `busy` only covers a move of mine that is in flight. Starting the game gets its own flag:
+  // the board often appears through realtime before the start request has returned, and taps
+  // made in that window must not be dropped.
   const act = async (action: 'start' | 'forfeit' | 'move', move?: Record<string, unknown>) => {
     if (!room) return;
-    setBusy(true);
+    const setFlag = action === 'start' ? setStarting : setBusy;
+    setFlag(true);
     try {
       const res = await engineAction(action, roomId, { move, version: action === 'move' ? room.version : undefined });
-      if (res.room) setRoom(res.room);
+      if (res.room) setRoom((current) => (current && current.version > res.room.version ? current : res.room));
     } catch (e) {
       if (e instanceof EngineError && e.room) setRoom(e.room);
       if (!(e instanceof EngineError && e.code === 'STALE')) toast.error(getErrorMessage(e));
       else void refresh();
     } finally {
-      setBusy(false);
+      setFlag(false);
     }
   };
 
@@ -237,7 +242,7 @@ export function GameRoomScreen({ roomId }: { roomId: string }) {
           <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
             {room.is_host ? (
               <>
-                <Button title={joined.length < room.game_info.min_players ? `Waiting for ${room.game_info.min_players - joined.length} more player${room.game_info.min_players - joined.length === 1 ? '' : 's'}` : canStart ? 'Start game' : 'Waiting for everyone to be ready'} leftIcon="play" onPress={() => void act('start')} disabled={!canStart || busy} loading={busy} glow fullWidth />
+                <Button title={joined.length < room.game_info.min_players ? `Waiting for ${room.game_info.min_players - joined.length} more player${room.game_info.min_players - joined.length === 1 ? '' : 's'}` : canStart ? 'Start game' : 'Waiting for everyone to be ready'} leftIcon="play" onPress={() => void act('start')} disabled={!canStart || starting} loading={starting} glow fullWidth />
               </>
             ) : me?.state === 'joined' ? (
               <Button title={me.is_ready ? 'Ready ✓ (tap to undo)' : "I'm ready"} variant={me.is_ready ? 'secondary' : 'primary'} leftIcon={me.is_ready ? 'checkmark-done' : 'checkmark'} onPress={async () => { try { setRoom(await setGameReady(roomId, !me.is_ready)); } catch (e) { toast.error(getErrorMessage(e)); } }} fullWidth />

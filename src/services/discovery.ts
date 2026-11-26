@@ -1,6 +1,7 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import * as Location from 'expo-location';
 
+import { privateChannel } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 import type { Json, ProfileCard } from '@/types/database';
 import type { DiscoverCard, DiscoverSection, MatchActionKind, MatchActionResult, MatchCandidate, MatchFindResult, NearbyPerson, PeopleSearchParams } from '@/types/social';
@@ -154,8 +155,7 @@ export async function sendMatchAction(candidateId: string, action: MatchActionKi
 
 /** Fires when my queue row changes (e.g. someone matched with me). Returns an unsubscribe function. */
 export function subscribeToMatchQueue(userId: string, onChange: () => void): () => void {
-  const channel: RealtimeChannel = supabase
-    .channel(`match_queue:${userId}`)
+  const channel: RealtimeChannel = privateChannel(`match_queue:${userId}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'match_queue', filter: `user_id=eq.${userId}` }, () => onChange())
     .subscribe();
   return () => {

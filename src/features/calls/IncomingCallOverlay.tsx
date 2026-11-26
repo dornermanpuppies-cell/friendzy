@@ -2,12 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { AppState, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Avatar } from '@/components/ui/Avatar';
 import { Text } from '@/components/ui/Text';
-import { answerCall, declineCall, getCall, subscribeToCall, subscribeToIncomingCalls, type CallRecord } from '@/services/calls';
+import { useToast } from '@/components/ui/Toast';
+import { answerCall, declineCall, getCall, getRingingCall, subscribeToCall, subscribeToIncomingCalls, type CallRecord } from '@/services/calls';
+import { getErrorMessage } from '@/utils/errors';
 import { useAuth } from '@/store/authStore';
 import { palette, radius, shadows, spacing } from '@/theme/tokens';
 
@@ -19,20 +21,40 @@ export function IncomingCallOverlay() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
+  const toast = useToast();
   const [call, setCall] = useState<CallRecord | null>(null);
   const [busy, setBusy] = useState(false);
   const hapticTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // New invitations arrive over realtime; a call that was already ringing when the app
+  // opened (or came back to the foreground) is picked up with get_ringing_call.
   useEffect(() => {
     if (!user) return;
-    return subscribeToIncomingCalls(user.id, async (callId) => {
+    let cancelled = false;
+    const checkRinging = () => {
+      getRingingCall()
+        .then((record) => {
+          if (!cancelled && record && record.status === 'ringing' && !record.is_initiator) setCall(record);
+        })
+        .catch(() => undefined);
+    };
+    checkRinging();
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkRinging();
+    });
+    const unsubscribe = subscribeToIncomingCalls(user.id, async (callId) => {
       try {
         const record = await getCall(callId);
-        if (record && record.status === 'ringing' && !record.is_initiator) setCall(record);
+        if (!cancelled && record && record.status === 'ringing' && !record.is_initiator) setCall(record);
       } catch {
         /* ignore */
       }
     });
+    return () => {
+      cancelled = true;
+      appState.remove();
+      unsubscribe();
+    };
   }, [user]);
 
   // Follow the call's status while the banner is visible.
@@ -58,8 +80,11 @@ export function IncomingCallOverlay() {
   const accept = async () => {
     setBusy(true);
     try {
-      await answerCall(call.id);
-      router.navigate(`/call/${call.id}` as never);
+      const answered = await answerCall(call.id);
+      if (answered.status === 'active') router.navigate(`/call/${call.id}` as never);
+      else toast.info('Call ended', 'That call is no longer ringing.');
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     } finally {
       setBusy(false);
       setCall(null);

@@ -155,8 +155,12 @@ export const ludoEngine: GameEngine<LudoState, LudoMove> = {
       }
       state.legal = legal;
       state.phase = 'move';
-      // Auto-move when there is exactly one option.
-      if (legal.length === 1) return this.move(state, { type: 'move', token: legal[0] }, userId, ctx);
+      // Auto-move when there is exactly one option (keeping the roll events).
+      if (legal.length === 1) {
+        const auto = this.move(state, { type: 'move', token: legal[0] }, userId, ctx);
+        auto.events = [...events, ...auto.events];
+        return auto;
+      }
       return result(state, ctx, events);
     }
 
@@ -204,8 +208,12 @@ export const ludoEngine: GameEngine<LudoState, LudoMove> = {
     if (state.phase === 'done') return result(state, ctx, []);
     const user = state.order[state.turnIndex];
     if (state.phase === 'roll') {
-      const step = this.move(state, { type: 'roll' }, user, ctx);
-      if (step.state.phase === 'move') return this.move(step.state, { type: 'move', token: step.state.legal[0] }, user, ctx);
+      const rolled = this.move(state, { type: 'roll' }, user, ctx);
+      let step = rolled;
+      if (rolled.state.phase === 'move') {
+        step = this.move(rolled.state, { type: 'move', token: rolled.state.legal[0] }, user, ctx);
+        step.events = [...rolled.events, ...step.events];
+      }
       step.events.push({ type: 'timeout', user });
       return step;
     }

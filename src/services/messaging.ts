@@ -1,18 +1,28 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 
+import { invalidateRecipients } from '@/lib/e2ee/devices';
+import { newFileKey } from '@/lib/e2ee/files';
+import { encryptLocalFile, secretFromMaterial } from '@/lib/e2ee/io';
+import { decryptMessage, decryptMessages, sealForConversation, type AttachmentSecret, type EnvelopePayloadV1 } from '@/lib/e2ee/messages';
 import { supabase } from '@/lib/supabase';
 import { generateVideoThumbnail } from '@/services/thumbnail';
 import { guessMime, objectPath, prepareImage, uploadFile, type UploadProgress } from '@/services/upload';
 import type { Json } from '@/types/database';
 import type { ConversationDetail, ConversationSummary, InboxFilter, Message, MessageAttachment, MessageKind, MessageMetadata, Sticker } from '@/types/messaging';
 import type { StoryCard } from '@/types/social';
+import { AppError } from '@/utils/errors';
 
 const CHAT_BUCKET = 'chat';
-const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+/** Plaintext limit per attachment; the sealed file is a few KB larger. */
+export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 function rows<T>(data: Json[] | Json | null): T[] {
   return (data ?? []) as unknown as T[];
+}
+
+function isStale(error: { message?: string; hint?: string | null } | null): boolean {
+  return Boolean(error) && /STALE_RECIPIENTS/.test(`${error?.message ?? ''} ${error?.hint ?? ''}`);
 }
 
 // ----------------------------------------------------------------------------
@@ -27,7 +37,8 @@ export async function fetchConversations(filter: InboxFilter, before: string | n
 export async function fetchConversation(id: string): Promise<ConversationDetail> {
   const { data, error } = await supabase.rpc('get_conversation', { p_id: id });
   if (error) throw error;
-  return data as unknown as ConversationDetail;
+  const detail = data as unknown as ConversationDetail;
+  return { ...detail, pins: await decryptMessages(detail.pins ?? []) };
 }
 
 export async function startDirectConversation(userId: string): Promise<string> {
@@ -57,12 +68,14 @@ export async function updateGroup(id: string, patch: { title?: string; descripti
 export async function addMembers(id: string, userIds: string[]): Promise<number> {
   const { data, error } = await supabase.rpc('add_members', { p_conversation: id, p_user_ids: userIds });
   if (error) throw error;
+  invalidateRecipients(id);
   return (data as number) ?? 0;
 }
 
 export async function removeMember(id: string, userId: string): Promise<void> {
   const { error } = await supabase.rpc('remove_member', { p_conversation: id, p_user: userId });
   if (error) throw error;
+  invalidateRecipients(id);
 }
 
 export async function setMemberRole(id: string, userId: string, role: 'owner' | 'admin' | 'member'): Promise<void> {
@@ -73,6 +86,7 @@ export async function setMemberRole(id: string, userId: string, role: 'owner' | 
 export async function leaveConversation(id: string): Promise<void> {
   const { error } = await supabase.rpc('leave_conversation', { p_conversation: id });
   if (error) throw error;
+  invalidateRecipients(id);
 }
 
 export async function rotateInviteLink(id: string): Promise<string> {
@@ -102,11 +116,13 @@ export async function getJoinRequests(id: string): Promise<{ id: string; user: M
 export async function respondJoinRequest(requestId: string, accept: boolean): Promise<void> {
   const { error } = await supabase.rpc('respond_join_request', { p_request: requestId, p_accept: accept });
   if (error) throw error;
+  invalidateRecipients();
 }
 
 export async function respondMessageRequest(conversationId: string, accept: boolean): Promise<void> {
   const { error } = await supabase.rpc('respond_message_request', { p_conversation: conversationId, p_accept: accept });
   if (error) throw error;
+  invalidateRecipients(conversationId);
 }
 
 export interface ConversationSettingsPatch {
@@ -161,66 +177,95 @@ export async function getUnreadTotal(): Promise<number> {
 }
 
 // ----------------------------------------------------------------------------
-// Messages
+// Messages (every fetch decrypts sealed envelopes on this device)
 // ----------------------------------------------------------------------------
 export async function fetchMessages(conversationId: string, before: string | null = null, limit = 40): Promise<Message[]> {
   const { data, error } = await supabase.rpc('get_messages', { p_conversation: conversationId, p_limit: limit, p_before: before, p_after: null });
   if (error) throw error;
   // Server returns newest first; keep chronological order locally.
-  return rows<Message>(data).reverse();
+  return decryptMessages(rows<Message>(data).reverse());
 }
 
 export async function fetchMessagesAfter(conversationId: string, after: string, limit = 100): Promise<Message[]> {
   const { data, error } = await supabase.rpc('get_messages', { p_conversation: conversationId, p_limit: limit, p_before: null, p_after: after });
   if (error) throw error;
-  return rows<Message>(data).reverse();
+  return decryptMessages(rows<Message>(data).reverse());
 }
 
 export async function fetchMessage(id: string): Promise<Message | null> {
   const { data, error } = await supabase.rpc('get_message', { p_id: id });
   if (error) throw error;
-  return (data as unknown as Message | null) ?? null;
+  const message = (data as unknown as Message | null) ?? null;
+  return message ? decryptMessage(message) : null;
 }
 
-export interface SendMessageInput {
+/** A sealed, uploaded attachment: what the server stores vs. what only recipients can read. */
+export interface EncryptedUpload {
+  server: { path: string; kind: MessageAttachment['kind']; size_bytes: number; thumbnail_path: string | null };
+  secret: AttachmentSecret;
+}
+
+export interface SendEncryptedInput {
   conversationId: string;
+  userId: string;
   kind?: MessageKind;
   text?: string | null;
   metadata?: MessageMetadata;
-  attachments?: Omit<MessageAttachment, 'id'>[];
+  attachments?: EncryptedUpload[];
   replyToId?: string | null;
   clientId?: string;
+  forwarded?: boolean;
 }
 
-export async function sendMessage(input: SendMessageInput): Promise<Message> {
-  const { data, error } = await supabase.rpc('send_message', {
-    p_conversation: input.conversationId,
-    p_kind: input.kind ?? 'text',
-    p_text: input.text ?? null,
-    p_metadata: (input.metadata ?? {}) as unknown as Json,
-    p_attachments: (input.attachments ?? []) as unknown as Json,
-    p_reply_to: input.replyToId ?? null,
-    p_client_id: input.clientId ?? null,
-  });
-  if (error) throw error;
-  return data as unknown as Message;
+/**
+ * Seals the content for every device in the conversation and stores only the
+ * envelope. If the device list changed meanwhile (STALE_RECIPIENTS) it refreshes
+ * the recipients and seals once more.
+ */
+export async function sendEncryptedMessage(input: SendEncryptedInput): Promise<Message> {
+  const kind = input.kind ?? 'text';
+  const payload: EnvelopePayloadV1 = { text: input.text ?? null, metadata: input.metadata ?? {}, attachments: (input.attachments ?? []).map((a) => a.secret) };
+  const attachments = (input.attachments ?? []).map((a) => a.server);
+  const attempt = async (force: boolean) => {
+    const { envelope } = await sealForConversation({ conversationId: input.conversationId, kind, payload, userId: input.userId, force });
+    return supabase.rpc('send_encrypted_message', {
+      p_conversation: input.conversationId,
+      p_kind: kind,
+      p_envelope: envelope as unknown as Json,
+      p_attachments: attachments as unknown as Json,
+      p_reply_to: input.replyToId ?? null,
+      p_client_id: input.clientId ?? null,
+      p_forwarded: Boolean(input.forwarded),
+    });
+  };
+  let result = await attempt(false);
+  if (isStale(result.error)) {
+    invalidateRecipients(input.conversationId);
+    result = await attempt(true);
+  }
+  if (result.error) throw result.error;
+  return decryptMessage(result.data as unknown as Message);
 }
 
-export async function editMessage(id: string, text: string): Promise<Message> {
-  const { data, error } = await supabase.rpc('edit_message', { p_id: id, p_text: text });
-  if (error) throw error;
-  return data as unknown as Message;
+export async function editMessage(message: Message, text: string, userId: string): Promise<Message> {
+  if (!message.encrypted) throw new AppError('This message was sent before end-to-end encryption and cannot be edited.', 'CANNOT_EDIT');
+  const payload: EnvelopePayloadV1 = { text, metadata: message.metadata ?? {}, attachments: [] };
+  const attempt = async (force: boolean) => {
+    const { envelope } = await sealForConversation({ conversationId: message.conversation_id, kind: 'text', payload, userId, force });
+    return supabase.rpc('edit_encrypted_message', { p_id: message.id, p_envelope: envelope as unknown as Json });
+  };
+  let result = await attempt(false);
+  if (isStale(result.error)) {
+    invalidateRecipients(message.conversation_id);
+    result = await attempt(true);
+  }
+  if (result.error) throw result.error;
+  return decryptMessage(result.data as unknown as Message);
 }
 
 export async function deleteMessage(id: string, forEveryone: boolean): Promise<void> {
   const { error } = await supabase.rpc('delete_message', { p_id: id, p_for_everyone: forEveryone });
   if (error) throw error;
-}
-
-export async function forwardMessages(messageIds: string[], conversationIds: string[]): Promise<number> {
-  const { data, error } = await supabase.rpc('forward_messages', { p_message_ids: messageIds, p_conversation_ids: conversationIds });
-  if (error) throw error;
-  return (data as number) ?? 0;
 }
 
 export async function reactToMessage(id: string, emoji: string | null): Promise<void> {
@@ -244,28 +289,44 @@ export async function getMessageInfo(id: string): Promise<{ user: Message['sende
   return rows(data);
 }
 
+/** Server-side search only covers messages sent before end-to-end encryption; sealed text is searched on the device. */
 export async function searchMessages(query: string, conversationId?: string): Promise<Message[]> {
   const { data, error } = await supabase.rpc('search_messages', { p_query: query, p_conversation: conversationId ?? null, p_limit: 50 });
   if (error) throw error;
-  return rows<Message>(data);
+  return decryptMessages(rows<Message>(data));
 }
 
 export async function getStarredMessages(): Promise<Message[]> {
   const { data, error } = await supabase.rpc('get_starred_messages', { p_limit: 100 });
   if (error) throw error;
-  return rows<Message>(data);
+  return decryptMessages(rows<Message>(data));
 }
 
 export async function getSharedMedia(conversationId: string, kind: 'media' | 'docs' | 'audio' | 'links', before: string | null = null): Promise<Message[]> {
   const { data, error } = await supabase.rpc('get_shared_media', { p_conversation: conversationId, p_kind: kind, p_limit: 60, p_before: before });
   if (error) throw error;
-  return rows<Message>(data);
+  return decryptMessages(rows<Message>(data));
 }
 
-export async function sendStoryReply(story: StoryCard, text: string): Promise<Message> {
-  const { data, error } = await supabase.rpc('send_story_reply', { p_story: story.id, p_text: text });
-  if (error) throw error;
-  return data as unknown as Message;
+export async function sendStoryReply(story: StoryCard, text: string, userId: string): Promise<Message> {
+  const conversationId = await startDirectConversation(story.author.id);
+  const payload: EnvelopePayloadV1 = {
+    text,
+    metadata: { story_id: story.id, thumbnail_url: story.thumbnail_url ?? story.media_url, story_kind: story.kind, story_text: (story.text ?? '').slice(0, 120) },
+    attachments: [],
+  };
+  const clientId = newClientId();
+  const attempt = async (force: boolean) => {
+    const { envelope } = await sealForConversation({ conversationId, kind: 'story_reply', payload, userId, force });
+    return supabase.rpc('send_story_reply', { p_story: story.id, p_envelope: envelope as unknown as Json, p_client_id: clientId });
+  };
+  let result = await attempt(false);
+  if (isStale(result.error)) {
+    invalidateRecipients(conversationId);
+    result = await attempt(true);
+  }
+  if (result.error) throw result.error;
+  return decryptMessage(result.data as unknown as Message);
 }
 
 export async function getStickers(): Promise<Sticker[]> {
@@ -275,7 +336,7 @@ export async function getStickers(): Promise<Sticker[]> {
 }
 
 // ----------------------------------------------------------------------------
-// Attachments (private bucket, signed URLs)
+// Attachments: encrypted on the device, stored as opaque blobs in the private bucket
 // ----------------------------------------------------------------------------
 export interface LocalAttachment {
   uri: string;
@@ -289,12 +350,24 @@ export interface LocalAttachment {
   waveform?: number[];
 }
 
-export async function uploadChatAttachment(conversationId: string, userId: string, item: LocalAttachment, onProgress?: (p: UploadProgress) => void): Promise<Omit<MessageAttachment, 'id'>> {
+async function uploadSealed(conversationId: string, userId: string, tag: string, uri: string, onProgress?: (p: UploadProgress) => void): Promise<{ path: string; bytes: number; plainBytes: number; secret: { key: string; nonce: string } }> {
+  const material = newFileKey();
+  const sealed = await encryptLocalFile(uri, material, MAX_ATTACHMENT_BYTES);
+  const path = `${conversationId}/${objectPath(userId, tag, 'application/octet-stream')}`;
+  try {
+    await uploadFile({ bucket: CHAT_BUCKET, path, uri: sealed.uri, contentType: 'application/octet-stream', onProgress });
+  } finally {
+    await sealed.cleanup();
+  }
+  return { path, bytes: sealed.bytes, plainBytes: sealed.plainBytes, secret: secretFromMaterial(material) };
+}
+
+export async function uploadEncryptedAttachment(conversationId: string, userId: string, item: LocalAttachment, onProgress?: (p: UploadProgress) => void): Promise<EncryptedUpload> {
   let uri = item.uri;
   let mime = item.mime ?? guessMime(item.uri);
   let width = item.width ?? null;
   let height = item.height ?? null;
-  let thumbnailPath: string | null = null;
+  let thumbnail: { path: string; secret: { key: string; nonce: string } } | null = null;
 
   if (item.kind === 'image') {
     const prepared = await prepareImage(item.uri, { maxDimension: 1600, quality: 0.82 });
@@ -308,9 +381,8 @@ export async function uploadChatAttachment(conversationId: string, userId: strin
     if (thumb) {
       try {
         const prepared = await prepareImage(thumb.uri, { maxDimension: 720, quality: 0.75 });
-        const path = `${conversationId}/${objectPath(userId, 'thumb', prepared.mime)}`;
-        await uploadFile({ bucket: CHAT_BUCKET, path, uri: prepared.uri, contentType: prepared.mime });
-        thumbnailPath = path;
+        const sealed = await uploadSealed(conversationId, userId, 'thumb', prepared.uri);
+        thumbnail = { path: sealed.path, secret: sealed.secret };
         width = width ?? thumb.width;
         height = height ?? thumb.height;
       } catch (error) {
@@ -318,19 +390,22 @@ export async function uploadChatAttachment(conversationId: string, userId: strin
       }
     }
   }
-  const path = `${conversationId}/${objectPath(userId, item.kind === 'image' ? 'img' : item.kind === 'video' ? 'vid' : item.kind === 'audio' ? 'voice' : 'doc', mime)}`;
-  const result = await uploadFile({ bucket: CHAT_BUCKET, path, uri, contentType: mime, onProgress, maxBytes: MAX_ATTACHMENT_BYTES });
+  const tag = item.kind === 'image' ? 'img' : item.kind === 'video' ? 'vid' : item.kind === 'audio' ? 'voice' : 'doc';
+  const sealed = await uploadSealed(conversationId, userId, tag, uri, onProgress);
   return {
-    kind: item.kind,
-    path,
-    name: item.name ?? null,
-    mime,
-    size_bytes: result.bytes,
-    width,
-    height,
-    duration_ms: item.durationMs ?? null,
-    thumbnail_path: thumbnailPath,
-    waveform: item.waveform ?? null,
+    server: { path: sealed.path, kind: item.kind, size_bytes: sealed.bytes, thumbnail_path: thumbnail?.path ?? null },
+    secret: {
+      name: item.name ?? null,
+      mime,
+      width,
+      height,
+      duration_ms: item.durationMs ?? null,
+      waveform: item.waveform ?? null,
+      size_bytes: sealed.plainBytes,
+      key: sealed.secret.key,
+      nonce: sealed.secret.nonce,
+      thumb: thumbnail?.secret ?? null,
+    },
   };
 }
 

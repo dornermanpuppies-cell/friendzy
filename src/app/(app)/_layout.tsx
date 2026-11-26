@@ -9,6 +9,7 @@ import { Logo } from '@/components/ui/Logo';
 import { Text } from '@/components/ui/Text';
 import { stepHref } from '@/features/onboarding/steps';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useE2eeSetup } from '@/hooks/useE2ee';
 import { usePresenceHeartbeat } from '@/hooks/usePresenceHeartbeat';
 import { usePushRegistration } from '@/hooks/usePushRegistration';
 import { useAuth, useAuthStore } from '@/store/authStore';
@@ -30,6 +31,7 @@ export default function AppLayout() {
 
   usePresenceHeartbeat(ready ? user?.id : undefined);
   usePushRegistration(ready ? user?.id : undefined);
+  useE2eeSetup(ready ? user?.id : undefined);
 
   const startBadges = useBadgeStore((s) => s.start);
   useEffect(() => {

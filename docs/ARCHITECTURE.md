@@ -38,8 +38,26 @@ supabase/functions              Edge Functions + _shared/games (pure TypeScript 
 - Admin roles live in `admin_roles` (never writable by clients); every admin RPC checks `has_admin_role()` and writes `admin_audit_logs`.
   The first super admin is created with `bootstrap_first_admin()` from the SQL editor / service role only.
 - Secrets (LiveKit, Resend, RevenueCat, push) exist only in Edge Function secrets. Tokens for media rooms are minted server-side per request.
-- Messages are protected by RLS and signed URLs; they are **not** end-to-end encrypted and the UI never claims so. (A client-side key
-  exchange could be layered later: attachments already go through per-conversation private paths.)
+- **Chat messages are end-to-end encrypted** (migration `0015_e2ee`, client code in `src/lib/e2ee/`). Each app installation
+  generates an X25519 identity key and an Ed25519 signing key; only the public halves are registered in `e2ee_devices`
+  (max 10 active devices per user, revocable in Settings). A message is encrypted on the sender's device with a fresh random key
+  (XChaCha20-Poly1305 with AAD = conversation id + kind + sender device), that key is wrapped for every device of every member
+  (X25519 with an ephemeral key + HKDF-SHA256, AEAD with the device id as AAD) and the whole envelope is signed by the sending
+  device over a transcript that includes the conversation and kind, so the server cannot move, re-key or replay it elsewhere.
+  The server stores the envelope in `messages.envelope`, checks only its shape and that the wrapped keys match *exactly* the
+  current devices of the current members (`e2ee_validate_envelope`: STALE_RECIPIENTS / RECIPIENT_WITHOUT_KEYS), and the plaintext
+  RPCs (`send_message`, `edit_message`, `forward_messages`) are no longer executable by clients — there is no plaintext fallback.
+  Attachments are encrypted on the device in 1 MiB chunks (format `FZE1`, truncation-safe) and uploaded as opaque
+  `application/octet-stream` objects; names, MIME types, dimensions, waveforms and the per-file keys travel inside the envelope.
+  Edits re-seal; forwards decrypt locally and send a new sealed message; story replies are sealed too. Push notifications for
+  sealed messages only say "New message" (`webhook_record` strips the envelope before pg_net). Reports of sealed messages carry
+  the text decrypted by the reporter so moderators can act.
+  **Limits (also shown in-app under Settings → Chats → End-to-end encryption):** metadata (who/when/kind/sizes/reactions/receipts)
+  is visible to the service; no forward secrecy or ratchet (a stolen device key opens the messages sealed for that device);
+  trust on first use with 60-digit security codes and "security code changed / new device" notices; a new device cannot read
+  messages sent before it was added; server-generated system notices and call logs are plaintext; calls, lives, games, posts and
+  stories are TLS-only; decrypted media is cached in app-private storage; keys live in the keychain (native) or IndexedDB wrapped
+  with a non-extractable WebCrypto key (web). Messages from before 0015 remain readable as they were and are marked without a lock.
 
 ## Economy (append-only ledger)
 `wallets` are mutated only by `ledger_apply` (row locks, idempotency keys). Coin purchases, gifts (30 % commission, net to creator earnings),

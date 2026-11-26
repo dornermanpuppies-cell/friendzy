@@ -9,7 +9,8 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 
 import { Avatar } from '@/components/ui/Avatar';
 import { Text } from '@/components/ui/Text';
 import { RichText } from '@/features/feed/RichText';
-import { useSignedUrl } from '@/hooks/useSignedUrl';
+import { useAttachmentSource } from '@/hooks/useAttachmentSource';
+import { undecryptableLabel } from '@/lib/e2ee/messages';
 import { palette, radius, spacing } from '@/theme/tokens';
 import type { Message, MessageAttachment, MessageStatus } from '@/types/messaging';
 import { formatDate } from '@/utils/format';
@@ -44,12 +45,17 @@ export function StatusTicks({ status, color }: { status: MessageStatus | null; c
 }
 
 function ImageAttachment({ attachment, onPress, width }: { attachment: MessageAttachment; onPress: () => void; width: number }) {
-  const url = useSignedUrl(attachment.thumbnail_path ?? attachment.path);
+  const { uri: url, error } = useAttachmentSource(attachment, 'thumb');
   const ratio = attachment.width && attachment.height ? Math.min(Math.max(attachment.width / attachment.height, 0.6), 1.8) : 1;
   return (
     <Pressable onPress={onPress} accessibilityRole="imagebutton" accessibilityLabel={attachment.kind === 'video' ? 'Video' : 'Photo'}>
       <View style={[styles.imageWrap, { width, height: width / ratio }]}>
         {url ? <Image source={{ uri: url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} /> : null}
+        {error ? (
+          <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="alert-circle-outline" size={22} color={palette.white} />
+          </View>
+        ) : null}
         {attachment.kind === 'video' ? (
           <View style={styles.playBadge}>
             <Ionicons name="play" size={22} color={palette.white} style={{ marginLeft: 2 }} />
@@ -81,7 +87,7 @@ function DocumentAttachment({ attachment, onPress, textColor }: { attachment: Me
 }
 
 function AudioAttachment({ attachment, mine, textColor }: { attachment: MessageAttachment; mine: boolean; textColor: string }) {
-  const url = useSignedUrl(attachment.path);
+  const { uri: url } = useAttachmentSource(attachment, 'full');
   return <VoiceNotePlayer uri={url} durationMs={attachment.duration_ms} waveform={attachment.waveform} tint={mine ? palette.white : palette.purpleSoft} trackColor={mine ? 'rgba(255,255,255,0.35)' : 'rgba(163,102,255,0.35)'} textColor={textColor} />;
 }
 
@@ -127,6 +133,16 @@ function MessageBubbleInner({ message, isGroup, showSender, wallpaper, lightWall
           <Ionicons name="ban-outline" size={14} color={metaColor} />
           <Text variant="small" style={{ color: metaColor, fontStyle: 'italic', marginLeft: 4 }}>
             This message was deleted
+          </Text>
+        </View>
+      );
+    }
+    if (message.decrypt_error) {
+      return (
+        <View style={[styles.inline, { maxWidth: 260 }]}>
+          <Ionicons name="lock-closed-outline" size={14} color={metaColor} />
+          <Text variant="small" style={{ color: metaColor, fontStyle: 'italic', marginLeft: 6, flex: 1 }}>
+            {undecryptableLabel(message.decrypt_error)}
           </Text>
         </View>
       );
@@ -310,6 +326,10 @@ function MessageBubbleInner({ message, isGroup, showSender, wallpaper, lightWall
             </View>
           ) : null}
           <View style={[styles.meta, isMedia && styles.metaOverlay]}>
+            {message.encrypted && message.verified === false && !message.decrypt_error ? (
+              <Ionicons name="alert-circle-outline" size={11} color={isMedia ? palette.white : metaColor} style={{ marginRight: 3 }} accessibilityLabel="Sender device could not be verified" />
+            ) : null}
+            {message.encrypted ? <Ionicons name="lock-closed" size={10} color={isMedia ? palette.white : metaColor} style={{ marginRight: 3 }} accessibilityLabel="End-to-end encrypted" /> : null}
             {message.expires_at ? <Ionicons name="timer-outline" size={11} color={metaColor} style={{ marginRight: 3 }} /> : null}
             {message.edited_at ? (
               <Text variant="caption" style={{ color: metaColor, marginRight: 4, fontSize: 10 }}>

@@ -51,11 +51,11 @@ export function MessageActionsSheet({ message, isGroup, canModerate, onClose, on
             </View>
           ) : null}
           {!m.deleted ? <ListItem icon="arrow-undo-outline" title="Reply" onPress={run(() => onReply(m))} /> : null}
-          {!m.deleted && (m.kind === 'text' || m.text) ? <ListItem icon="copy-outline" title="Copy" onPress={run(() => onCopy(m))} /> : null}
-          {!m.deleted ? <ListItem icon="arrow-redo-outline" title="Forward" onPress={run(() => onForward(m))} /> : null}
+          {!m.deleted && m.text ? <ListItem icon="copy-outline" title="Copy" onPress={run(() => onCopy(m))} /> : null}
+          {!m.deleted && !m.decrypt_error ? <ListItem icon="arrow-redo-outline" title="Forward" subtitle="Re-encrypted for the chats you choose" onPress={run(() => onForward(m))} /> : null}
           {!m.deleted ? <ListItem icon={m.starred ? 'star' : 'star-outline'} title={m.starred ? 'Unstar' : 'Star'} onPress={run(() => onStar(m))} /> : null}
           {!m.deleted && (!isGroup || canModerate) ? <ListItem icon="pin-outline" title={m.pinned ? 'Unpin' : 'Pin'} subtitle="Up to 3 pinned messages" onPress={run(() => onPin(m))} /> : null}
-          {m.is_mine && m.kind === 'text' && !m.deleted && within24h ? <ListItem icon="create-outline" title="Edit" onPress={run(() => onEdit(m))} /> : null}
+          {m.is_mine && m.kind === 'text' && m.encrypted && !m.decrypt_error && !m.deleted && within24h ? <ListItem icon="create-outline" title="Edit" onPress={run(() => onEdit(m))} /> : null}
           {m.is_mine ? <ListItem icon="information-circle-outline" title="Message info" subtitle="Delivered and read times" onPress={run(() => onInfo(m))} /> : null}
           <ListItem icon="checkbox-outline" title="Select messages" onPress={run(() => onSelect(m))} />
           <ListItem icon="trash-outline" title="Delete for me" onPress={run(() => onDelete(m, false))} />

@@ -231,3 +231,28 @@ begin
     raise exception 'ASSERTION FAILED: % — expected an error but none was raised', p_message;
   end if;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Plaintext messaging wrappers. Since migration 0015 every client message must
+-- be end-to-end encrypted, so public.send_message / edit_message /
+-- forward_messages are no longer executable by the authenticated role. The
+-- conversation rules they share with the encrypted path are still exercised
+-- through these definer wrappers (bodies resolve at call time, after migrations).
+-- ---------------------------------------------------------------------------
+create or replace function tests.send_plain(p_conversation uuid, p_kind text default 'text', p_text text default null, p_metadata jsonb default '{}'::jsonb, p_attachments jsonb default '[]'::jsonb, p_reply_to uuid default null, p_client_id text default null)
+returns jsonb language plpgsql security definer as $$
+begin
+  return public.send_message(p_conversation, p_kind::public.message_kind, p_text, p_metadata, p_attachments, p_reply_to, p_client_id);
+end $$;
+
+create or replace function tests.edit_plain(p_id uuid, p_text text)
+returns jsonb language plpgsql security definer as $$
+begin
+  return public.edit_message(p_id, p_text);
+end $$;
+
+create or replace function tests.forward_plain(p_message_ids uuid[], p_conversation_ids uuid[])
+returns integer language plpgsql security definer as $$
+begin
+  return public.forward_messages(p_message_ids, p_conversation_ids);
+end $$;

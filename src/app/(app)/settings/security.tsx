@@ -74,6 +74,7 @@ export default function SecuritySettingsScreen() {
       <View style={{ height: spacing['3xl'] }} />
       <ListSection title="Sessions">
         <ListItem icon="phone-portrait-outline" title="Active sessions" subtitle="Review devices and sign out individually" onPress={() => router.navigate('/settings/sessions')} />
+        <ListItem icon="lock-closed-outline" title="Encryption devices" subtitle="Devices that can read your end-to-end encrypted chats" onPress={() => router.navigate('/settings/encryption' as never)} />
         <ListItem icon="log-out-outline" title="Sign out of all other devices" subtitle="Keeps this device signed in" onPress={signOutOthers} disabled={revoking} showChevron={false} />
       </ListSection>
 

@@ -15,9 +15,9 @@ cp .env.example .env.local      # fill EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SU
 `.env.local` is gitignored. Only `EXPO_PUBLIC_*` values go there.
 
 ## 3. Database
-**Status (2026-11-25, evening): all 14 migrations (0001–0014) are applied on project `gwdpsrjmfrgcloacvdlg`** and the
+**Status (2026-11-26): all 15 migrations (0001–0015, the last one adds end-to-end encrypted messaging) are applied on project `gwdpsrjmfrgcloacvdlg`** and the
 CLI migration history (`supabase_migrations.schema_migrations`) lists them, so `supabase db push --dry-run` reports nothing
-pending and the GitHub `supabase-deploy.yml` workflow will only ever apply *new* files. Verified live: 110 public tables, every
+pending and the GitHub `supabase-deploy.yml` workflow will only ever apply *new* files. Verified live: 111 public tables, every
 one with RLS; `discover_people`, `search_people`, `match_find` and the other discovery RPCs answer; `match_queue` is in the
 realtime publication; `pg_net` is enabled; nine storage buckets exist. Nothing left to run for the current code.
 
@@ -25,7 +25,7 @@ New migration files are applied either by the deploy workflow (once its three se
 SQL editor and then recording it: `insert into supabase_migrations.schema_migrations (version, name) values ('<timestamp>', '<name>');`.
 
 Fresh project (if you ever start over): paste `supabase/FRIENDZY_ALL_MIGRATIONS.sql` into the SQL editor (all migrations in order,
-idempotent), or `supabase db push` on a linked project. Verify: Table Editor shows ~110 tables, Storage shows buckets
+idempotent), or `supabase db push` on a linked project. Verify: Table Editor shows ~111 tables, Storage shows buckets
 `avatars`, `covers`, `posts`, `stories`, `chat`, `videos`, `live`, `verification`, `banners`.
 
 Local proof: `npm run db:test` boots an embedded PostgreSQL, applies the migrations and runs the SQL test-suite.

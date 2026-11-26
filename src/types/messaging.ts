@@ -1,3 +1,5 @@
+import type { Envelope } from '@/lib/e2ee/crypto';
+import type { DecryptError } from '@/lib/e2ee/messages';
 import type { AuthorCard } from '@/types/social';
 
 export type ConversationKind = 'direct' | 'group';
@@ -22,6 +24,10 @@ export interface ConversationSummary {
     created_at: string;
     is_mine: boolean;
     status: MessageStatus | null;
+    /** End-to-end encrypted: `preview` only reflects the kind; the client decrypts `envelope` for the real preview. */
+    encrypted?: boolean;
+    envelope?: Envelope | null;
+    deleted?: boolean;
   } | null;
   last_message_at: string | null;
   unread_count: number;
@@ -59,6 +65,8 @@ export interface MessageAttachment {
   duration_ms: number | null;
   thumbnail_path: string | null;
   waveform: number[] | null;
+  /** Local-only (filled after decryption): keys to open the encrypted file and its thumbnail. */
+  e2ee?: { key: string; nonce: string; thumb: { key: string; nonce: string } | null };
 }
 
 export interface MessageReactionGroup {
@@ -106,7 +114,7 @@ export interface Message {
   text: string | null;
   metadata: MessageMetadata;
   attachments: MessageAttachment[];
-  reply_to: { id: string; sender: AuthorCard | null; kind: MessageKind; preview: string; deleted: boolean } | null;
+  reply_to: { id: string; sender: AuthorCard | null; kind: MessageKind; preview: string; deleted: boolean; encrypted?: boolean; envelope?: Envelope | null } | null;
   reactions: MessageReactionGroup[];
   my_reaction: string | null;
   starred: boolean;
@@ -119,6 +127,14 @@ export interface Message {
   client_id: string | null;
   is_mine: boolean;
   status: MessageStatus | null;
+  /** True when the server only holds a sealed envelope for this message. */
+  encrypted?: boolean;
+  /** The sealed envelope as stored; `text`/`metadata`/attachment details are filled in locally after decryption. */
+  envelope?: Envelope | null;
+  /** Local-only: whether the sender device's signature checked out against the key directory. */
+  verified?: boolean;
+  /** Local-only: why this device could not open the envelope. */
+  decrypt_error?: DecryptError;
   /** Local-only: the conversation summary when returned from search / starred lists. */
   conversation?: ConversationSummary;
   /** Local-only: upload progress for optimistic sends. */

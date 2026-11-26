@@ -45,7 +45,7 @@ export default function ChatSettingsScreen() {
         <ListItem icon="color-palette-outline" title="Wallpapers" subtitle="Choose a wallpaper per chat from its info screen" showChevron={false} />
       </ListSection>
       <ListSection title="Security">
-        <ListItem icon="lock-closed-outline" title="Encryption" subtitle="Messages are encrypted in transit (TLS) and stored securely. Friendzy does not yet offer end-to-end encryption; the architecture is prepared for it." showChevron={false} />
+        <ListItem icon="lock-closed-outline" title="End-to-end encryption" subtitle="Your security code, the devices that can read your chats, and what encryption does and does not cover" onPress={() => router.navigate('/settings/encryption' as never)} />
       </ListSection>
       <Text variant="caption" color="textMuted" style={{ marginTop: spacing.md }}>
         Blocked people can never message you regardless of these settings.

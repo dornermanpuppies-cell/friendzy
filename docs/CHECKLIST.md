@@ -2,7 +2,7 @@
 
 Status legend: ✅ done & tested · 🧪 built, needs live verification · 🔑 blocked on credentials/config · ⏳ not built
 
-"Done & tested" for the database means every table, policy and RPC passed the SQL test-suite (`npm run db:test`, 13 suites, 110 tables with RLS)
+"Done & tested" for the database means every table, policy and RPC passed the SQL test-suite (`npm run db:test`, 15 suites, 111 tables with RLS)
 against a local PostgreSQL that mimics Supabase. "Needs live verification" means the UI and backend exist and typecheck, but could not be
 exercised end-to-end from the build sandbox (no device / camera / store, and the migrations are applied by the project owner).
 
@@ -10,7 +10,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| 14 migrations `supabase/migrations/20261125000001…0014` (foundation, social, messaging, calls, videos, economy, live, games, subscriptions, admin, LiveKit webhooks, hardening, friend discovery & matching, push webhooks) | ✅ all applied on the live project and recorded in the CLI migration history (2026-11-25) | combined hand-off file: `supabase/FRIENDZY_ALL_MIGRATIONS.sql` |
+| 15 migrations `supabase/migrations/20261125000001…0015` (foundation, social, messaging, calls, videos, economy, live, games, subscriptions, admin, LiveKit webhooks, hardening, friend discovery & matching, push webhooks, end-to-end encryption) | ✅ all applied on the live project and recorded in the CLI migration history (2026-11-26) | combined hand-off file: `supabase/FRIENDZY_ALL_MIGRATIONS.sql` |
 | SQL tests `supabase/tests/0001…0014` + RLS-on-every-table check | ✅ | `npm run db:test` |
 | GitHub Actions (`ci.yml`: typecheck/lint/tests/SQL suite/web export · `supabase-deploy.yml`: migrations + functions · `android-apk.yml`: signed Android APK published as a GitHub release) and Netlify build (`netlify.toml` + generated redirects, `404.html`) | ✅ CI green on `main` · 🔑 `android-apk.yml` needs the `EXPO_PUBLIC_SUPABASE_ANON_KEY` repository variable; download link needs a public repository | deploy workflow needs three repository secrets |
 | Website Download page: installable web app (manifest, service worker, install prompt) + Android APK from the latest GitHub release (version, size, update check inside the app) + honest iOS copy | 🧪 | `src/app/(marketing)/download.tsx`, `src/services/androidRelease.ts`, `plugins/withAndroidReleaseSigning.js` |
@@ -53,7 +53,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 | Item | Status |
 | --- | --- |
 | 1:1 & group chats, attachments, voice notes, GIFs (🔑 Tenor key), stickers, replies, edit/delete, reactions, forward, star, pin, search, read receipts, typing, archive/mute/pin/unread, disappearing messages, wallpapers, message requests, invite links | 🧪 |
-| End-to-end encryption | ⏳ not claimed — architecture note in ARCHITECTURE.md |
+| End-to-end encryption: per-device X25519/Ed25519 keys (10 per user, revocable), sealed envelopes with per-message keys, server-side recipient check (no plaintext fallback, plaintext RPCs revoked), encrypted attachments (chunked, streamed on phones), inbox previews / replies / edits / forwards / story replies / search / media gallery all handled on-device, security codes + trust-on-first-use notices, Settings → End-to-end encryption (devices, limits), generic push text, reports carry reporter-decrypted text | ✅ DB (`0015_e2ee`, 70+ assertions) · ✅ crypto (12 Jest cases) · 🧪 two-account UI test |
 
 ## Phase 4 — Communication
 | Item | Status |
@@ -106,7 +106,7 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
 - `npm run web:export` — static site builds.
 
 ## Open configuration items (owner action required)
-1. ~~Run the migrations~~ ✅ 0001–0014 applied and recorded in the CLI history (2026-11-25). Nothing to run.
+1. ~~Run the migrations~~ ✅ 0001–0015 applied and recorded in the CLI history (2026-11-26). Nothing to run.
 1b. ~~Push the repository to GitHub and connect it to Netlify~~ ✅ · ~~Netlify public variables~~ ✅ corrected through the Netlify API (the two URLs had been pasted into the wrong fields); the live site passes `npm run site:check` and Supabase accepts the baked anon key · ~~Supabase Auth URLs~~ ✅ set. ~~First administrator~~ ✅ created through the Auth Admin API and promoted with `bootstrap_first_admin` (2026-11-26); the one-time bootstrap function and its secret were deleted afterwards.
 1c. ~~Android download~~ ✅ repository variable set, first release published (`android-v0.1.0-4`, test-signed), repository made public (2026-11-26) so the website's Download page shows the APK, and the four `ANDROID_KEYSTORE_*` secrets installed (4096-bit RSA upload key, valid to 2054; the values live only in the owner's copy of `.env.android-signing`). Builds from now on are signed with the Friendzy upload key — phones with the test-signed build must uninstall once.
 2. ~~Deploy Edge Functions~~ ✅ all seven deployed with LiveKit, SITE_URL, push and RevenueCat secrets. Still to add (owner, dashboard → Edge Functions → Secrets): `RESEND_API_KEY` + `SEND_EMAIL_HOOK_SECRET` (then enable the Send Email hook). ~~RevenueCat webhook registration~~ ✅ URL entered in RevenueCat with the `REVENUECAT_WEBHOOK_AUTH` header; the owner reports the test delivery as successful (2026-11-26). Rotate the LiveKit API key pair that was shared in chat and update `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.

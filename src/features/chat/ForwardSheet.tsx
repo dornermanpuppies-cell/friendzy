@@ -7,20 +7,27 @@ import { Button } from '@/components/ui/Button';
 import { Sheet } from '@/components/ui/Sheet';
 import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
-import { forwardMessages } from '@/services/messaging';
+import { resolveAttachmentUri } from '@/services/attachments';
+import type { LocalAttachment } from '@/services/messaging';
 import { useChatStore } from '@/store/chatStore';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/tokens';
+import type { Message } from '@/types/messaging';
 import { getErrorMessage } from '@/utils/errors';
 
 export interface ForwardSheetProps {
-  messageIds: string[];
+  messages: Message[];
   visible: boolean;
   onClose: () => void;
   onDone?: () => void;
 }
 
-export function ForwardSheet({ messageIds, visible, onClose, onDone }: ForwardSheetProps) {
+/**
+ * Forwarding re-encrypts on this device: the content is decrypted here and sent
+ * as a brand-new end-to-end encrypted message to each chosen chat (the server
+ * cannot copy sealed messages between conversations).
+ */
+export function ForwardSheet({ messages, visible, onClose, onDone }: ForwardSheetProps) {
   const { colors } = useTheme();
   const toast = useToast();
   const list = useChatStore((s) => s.lists.inbox);
@@ -44,8 +51,33 @@ export function ForwardSheet({ messageIds, visible, onClose, onDone }: ForwardSh
     if (!selected.length) return;
     setBusy(true);
     try {
-      const count = await forwardMessages(messageIds, selected);
-      toast.success(`Forwarded to ${selected.length} chat${selected.length === 1 ? '' : 's'}`, `${count} message${count === 1 ? '' : 's'} sent`);
+      const forwardable = messages.filter((m) => !m.deleted && !m.decrypt_error && m.kind !== 'system' && m.kind !== 'call');
+      if (forwardable.length === 0) throw new Error('These messages cannot be forwarded.');
+      // Resolve (and decrypt) attachments once, then re-send to every chat.
+      const prepared: { message: Message; attachments: LocalAttachment[] }[] = [];
+      for (const message of forwardable) {
+        const attachments: LocalAttachment[] = [];
+        for (const a of message.attachments) {
+          attachments.push({
+            uri: await resolveAttachmentUri(a, 'full'),
+            kind: a.kind,
+            mime: a.mime ?? undefined,
+            name: a.name ?? undefined,
+            width: a.width ?? undefined,
+            height: a.height ?? undefined,
+            durationMs: a.duration_ms ?? undefined,
+            waveform: a.waveform ?? undefined,
+          });
+        }
+        prepared.push({ message, attachments });
+      }
+      const sendOne = useChatStore.getState().send;
+      for (const conversationId of selected) {
+        for (const { message, attachments } of prepared) {
+          void sendOne({ conversationId, kind: message.kind, text: message.text, metadata: message.metadata, attachments, forwarded: true });
+        }
+      }
+      toast.success(`Forwarding to ${selected.length} chat${selected.length === 1 ? '' : 's'}`, `${prepared.length} message${prepared.length === 1 ? '' : 's'} · end-to-end encrypted`);
       onDone?.();
       onClose();
     } catch (error) {
@@ -58,7 +90,7 @@ export function ForwardSheet({ messageIds, visible, onClose, onDone }: ForwardSh
   const items = (list?.ids ?? []).map((id) => conversations[id]).filter(Boolean);
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Forward to…" subtitle={`${messageIds.length} message${messageIds.length === 1 ? '' : 's'} · up to 5 chats`} footer={<Button title={selected.length ? `Send to ${selected.length}` : 'Send'} fullWidth onPress={send} disabled={!selected.length} loading={busy} style={{ marginBottom: spacing.md }} />}>
+    <Sheet visible={visible} onClose={onClose} title="Forward to…" subtitle={`${messages.length} message${messages.length === 1 ? '' : 's'} · up to 5 chats`} footer={<Button title={selected.length ? `Send to ${selected.length}` : 'Send'} fullWidth onPress={send} disabled={!selected.length} loading={busy} style={{ marginBottom: spacing.md }} />}>
       <FlatList
         data={items}
         keyExtractor={(c) => c.id}

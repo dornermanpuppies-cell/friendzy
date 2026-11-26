@@ -19,7 +19,8 @@ function json(body: unknown, status = 200) {
 }
 
 type NotificationRecord = { id: string; user_id: string; actor_id: string | null; type: string; entity_type: string | null; entity_id: string | null; data: Record<string, unknown> | null };
-type MessageRecord = { id: string; conversation_id: string; sender_id: string | null; kind: string; text: string | null; metadata: Record<string, unknown> | null };
+// `encrypted` is set by the database trigger (public.webhook_record); the sealed envelope itself is never sent here.
+type MessageRecord = { id: string; conversation_id: string; sender_id: string | null; kind: string; text: string | null; metadata: Record<string, unknown> | null; encrypted?: boolean };
 type Card = { id: string; username: string; display_name: string; avatar_url: string | null } | null;
 
 const PREF_BY_TYPE: Record<string, string> = {
@@ -151,7 +152,10 @@ Deno.serve(async (req) => {
       admin.from('conversations').select('kind, title').eq('id', m.conversation_id).maybeSingle(),
     ]);
     const senderName = sender?.display_name ?? 'New message';
-    const preview = m.kind === 'text' ? (m.text ?? '') : m.kind === 'image' ? '📷 Photo' : m.kind === 'video' ? '🎥 Video' : m.kind === 'audio' || m.kind === 'voice' ? '🎤 Voice note' : m.kind === 'gif' ? 'GIF' : m.kind === 'sticker' ? 'Sticker' : m.kind === 'file' || m.kind === 'document' ? '📎 File' : m.kind === 'call' ? '📞 Call' : 'Sent you a message';
+    // End-to-end encrypted messages: the server cannot read them, so the notification stays generic.
+    const preview = m.encrypted
+      ? 'New message'
+      : m.kind === 'text' ? (m.text ?? '') : m.kind === 'image' ? '📷 Photo' : m.kind === 'video' ? '🎥 Video' : m.kind === 'audio' || m.kind === 'voice' ? '🎤 Voice note' : m.kind === 'gif' ? 'GIF' : m.kind === 'sticker' ? 'Sticker' : m.kind === 'file' || m.kind === 'document' ? '📎 File' : m.kind === 'call' ? '📞 Call' : 'Sent you a message';
     const title = conversation?.kind === 'group' && conversation.title ? `${senderName} · ${conversation.title}` : senderName;
     const tokens = await tokensFor(admin, allowed);
     const result = await sendExpo(admin, tokens.map((t) => ({ to: t.token, title, body: preview.slice(0, 140), data: { url: `/chat/${m.conversation_id}`, conversation_id: m.conversation_id, type: 'message' }, sound: 'default', channelId: 'default' })));

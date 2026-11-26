@@ -16,6 +16,7 @@ import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
 import { AttachmentViewer } from '@/features/chat/AttachmentViewer';
 import { ChatComposer } from '@/features/chat/ChatComposer';
+import { EncryptionNotice } from '@/features/chat/EncryptionNotice';
 import { ForwardSheet } from '@/features/chat/ForwardSheet';
 import { MessageActionsSheet } from '@/features/chat/MessageActionsSheet';
 import { MessageBubble } from '@/features/chat/MessageBubble';
@@ -24,6 +25,7 @@ import { confirmAction } from '@/features/feed/usePostActions';
 import { ProfileRow } from '@/features/profile/ProfileRow';
 import { ReportSheet } from '@/features/profile/ReportSheet';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useEncryptionStatus } from '@/hooks/useE2ee';
 import { startCall } from '@/services/calls';
 import { deleteMessage, editMessage, fetchConversation, getMessageInfo, markConversationRead, pinMessage, reactToMessage, respondMessageRequest, starMessage, subscribeToConversation } from '@/services/messaging';
 import { getPresence, setPresenceActivity } from '@/services/presence';
@@ -31,6 +33,7 @@ import { blockUser } from '@/services/safety';
 import { useAuth } from '@/store/authStore';
 import { useBadgeStore } from '@/store/badgeStore';
 import { useChatStore } from '@/store/chatStore';
+import { useE2eeStore } from '@/store/e2eeStore';
 import { palette, spacing } from '@/theme/tokens';
 import type { PresenceInfo } from '@/types/database';
 import type { Message, MessageAttachment } from '@/types/messaging';
@@ -89,6 +92,10 @@ export default function ChatScreen() {
   );
   const refreshInbox = useBadgeStore((s) => s.refreshInbox);
   const typingRef = useRef<((typing: boolean, name: string, userId: string) => void) | null>(null);
+  // End-to-end encryption: this device needs keys and every member needs at least one device.
+  const encryption = useEncryptionStatus(conversationId, Boolean(conversation) && !conversation?.is_request);
+  const notices = useE2eeStore((s) => s.notices);
+  const dismissNotice = useE2eeStore((s) => s.dismissNotice);
 
   // Load conversation + messages.
   useEffect(() => {
@@ -238,6 +245,18 @@ export default function ChatScreen() {
     }
   };
 
+  const members = ((conversation as { members?: { id: string; display_name: string }[] } | undefined)?.members ?? []).filter((m) => m.id !== user?.id);
+  const participantIds = conversation?.kind === 'direct' ? (conversation.other_user ? [conversation.other_user.id] : []) : members.map((m) => m.id);
+  const nameOf = (id: string) => (conversation?.other_user?.id === id ? conversation.other_user.display_name : (members.find((m) => m.id === id)?.display_name ?? 'Someone'));
+  const noticeUser = participantIds.find((id) => notices[id]);
+  const composerBlock = (() => {
+    if (!conversation || conversation.is_request) return null;
+    if (encryption.error) return `Encryption could not be set up on this device: ${encryption.error}`;
+    if (encryption.missing.length) return `Waiting for ${encryption.missing.map(nameOf).join(', ')} to open Friendzy. This chat is end-to-end encrypted, so their device has to create its keys first.`;
+    if (!encryption.ready) return 'Setting up end-to-end encryption…';
+    return null;
+  })();
+
   const headerSubtitle = (() => {
     if (!conversation) return '';
     if (typingNames.length) return `${typingNames.join(', ')} typing…`;
@@ -321,6 +340,26 @@ export default function ChatScreen() {
           </Pressable>
         ) : null}
 
+        {/* Trust change notice (new device / changed key of a participant) */}
+        {noticeUser ? (
+          <View style={[styles.pinBanner, { backgroundColor: light ? 'rgba(255,255,255,0.85)' : 'rgba(9,8,23,0.7)' }]}>
+            <Ionicons name="shield-outline" size={16} color={palette.pinkSoft} />
+            <Text variant="caption" numberOfLines={3} style={{ flex: 1, marginLeft: spacing.sm, color: light ? palette.ink : palette.white }}>
+              {notices[noticeUser].kind === 'key_changed'
+                ? `${nameOf(noticeUser)}'s security code changed. If you didn't expect this, verify it before sharing anything sensitive.`
+                : `${nameOf(noticeUser)} added a new device. You can verify its security code in chat info.`}
+            </Text>
+            <Pressable onPress={() => router.navigate(`/chat/${conversationId}/encryption` as never)} hitSlop={8}>
+              <Text variant="caption" color="primary" style={{ fontWeight: '700' }}>
+                Verify
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => dismissNotice(noticeUser)} hitSlop={8} style={{ marginLeft: spacing.md }} accessibilityLabel="Dismiss">
+              <Ionicons name="close" size={16} color={light ? palette.ink3 : 'rgba(255,255,255,0.7)'} />
+            </Pressable>
+          </View>
+        ) : null}
+
         {/* Messages */}
         {!thread?.loaded ? (
           <ActivityIndicator color={palette.purpleSoft} style={{ flex: 1 }} />
@@ -366,7 +405,15 @@ export default function ChatScreen() {
             }}
             onEndReached={() => thread.hasMore && void loadMessages(conversationId, true)}
             onEndReachedThreshold={0.4}
-            ListFooterComponent={thread.loading && thread.hasMore ? <ActivityIndicator color={palette.purpleSoft} style={{ padding: spacing.md }} /> : <View style={{ height: spacing.md }} />}
+            ListFooterComponent={
+              thread.loading && thread.hasMore ? (
+                <ActivityIndicator color={palette.purpleSoft} style={{ padding: spacing.md }} />
+              ) : thread.hasMore ? (
+                <View style={{ height: spacing.md }} />
+              ) : (
+                <EncryptionNotice light={light} onPress={() => router.navigate(`/chat/${conversationId}/encryption` as never)} />
+              )
+            }
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
                 <Avatar uri={conversation?.avatar_url} name={conversation?.title} size={72} />
@@ -374,7 +421,7 @@ export default function ChatScreen() {
                   {conversation?.title}
                 </Text>
                 <Text variant="small" style={{ color: light ? palette.ink3 : 'rgba(255,255,255,0.7)', textAlign: 'center', marginTop: 4 }}>
-                  {isGroup ? 'Say hello to the group.' : 'This is the beginning of your conversation. Messages are protected in transit and stored securely.'}
+                  {isGroup ? 'Say hello to the group. Messages here are end-to-end encrypted for every member.' : 'This is the beginning of your conversation. Messages here are end-to-end encrypted — only the two of you can read them.'}
                 </Text>
               </View>
             }
@@ -402,6 +449,8 @@ export default function ChatScreen() {
             replyTo={replyTo}
             editing={editing}
             lightWallpaper={light}
+            disabled={Boolean(composerBlock)}
+            disabledReason={composerBlock ?? undefined}
             onCancelContext={() => { setReplyTo(null); setEditing(null); }}
             onTyping={(typing) => profile && typingRef.current?.(typing, profile.display_name, profile.id)}
             onSendText={(text) => { void send({ conversationId, text, replyToId: replyTo?.id ?? null }); setReplyTo(null); }}
@@ -409,7 +458,7 @@ export default function ChatScreen() {
             onSendSticker={(s) => void send({ conversationId, kind: 'sticker', text: s.label, metadata: { sticker_id: s.id, emoji: s.emoji ?? undefined, url: s.url ?? undefined } })}
             onSendGif={(url, preview) => void send({ conversationId, kind: 'gif', metadata: { url, thumbnail_url: preview } })}
             onSendLocation={(metadata) => void send({ conversationId, kind: 'location', metadata })}
-            onSubmitEdit={async (text) => { if (!editing) return; const target = editing; setEditing(null); try { const updated = await editMessage(target.id, text); useChatStore.getState().upsertMessage(updated); } catch (error) { toast.error(getErrorMessage(error)); } }}
+            onSubmitEdit={async (text) => { if (!editing || !user) return; const target = editing; setEditing(null); try { const updated = await editMessage(target, text, user.id); useChatStore.getState().upsertMessage(updated); } catch (error) { toast.error(getErrorMessage(error)); } }}
           />
         )}
       </KeyboardAvoidingView>
@@ -431,7 +480,7 @@ export default function ChatScreen() {
         onReport={setReport}
         onSelect={(m) => setSelection(new Set([m.id]))}
       />
-      <ForwardSheet messageIds={forward ?? []} visible={Boolean(forward)} onClose={() => setForward(null)} onDone={() => setSelection(null)} />
+      <ForwardSheet messages={(messages ?? []).filter((m) => forward?.includes(m.id))} visible={Boolean(forward)} onClose={() => setForward(null)} onDone={() => setSelection(null)} />
       <AttachmentViewer attachment={viewer} onClose={() => setViewer(null)} />
       <Sheet visible={Boolean(info)} onClose={() => setInfo(null)} title="Message info">
         {(info ?? []).length === 0 ? (
@@ -445,7 +494,7 @@ export default function ChatScreen() {
         )}
         <View style={{ height: spacing.lg }} />
       </Sheet>
-      {report ? <ReportSheet visible onClose={() => setReport(null)} targetType="message" targetId={report.id} targetLabel="message" /> : null}
+      {report ? <ReportSheet visible onClose={() => setReport(null)} targetType="message" targetId={report.id} targetLabel="message" contextText={report.encrypted ? (report.text ?? undefined) : undefined} /> : null}
     </View>
   );
 }

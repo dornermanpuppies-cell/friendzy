@@ -4,6 +4,7 @@ import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/Avatar';
 import { Text } from '@/components/ui/Text';
+import { useDecryptedPreview } from '@/hooks/useE2ee';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, spacing } from '@/theme/tokens';
 import type { ConversationSummary } from '@/types/messaging';
@@ -36,10 +37,12 @@ function ConversationRowInner({ conversation: c, typingNames = [], online, onPre
   const { colors } = useTheme();
   const last = c.last_message;
   const unread = c.unread_count > 0 || c.marked_unread;
+  // Sealed previews are decrypted on this device; the server only knows the kind.
+  const lastPreview = useDecryptedPreview(c);
   const preview = typingNames.length
     ? `${typingNames.join(', ')} ${typingNames.length === 1 ? 'is' : 'are'} typing…`
     : last
-      ? `${c.kind === 'group' && !last.is_mine && last.sender_name ? `${last.sender_name.split(' ')[0]}: ` : last.is_mine ? 'You: ' : ''}${last.preview}`
+      ? `${c.kind === 'group' && !last.is_mine && last.sender_name ? `${last.sender_name.split(' ')[0]}: ` : last.is_mine ? 'You: ' : ''}${lastPreview}`
       : c.is_request
         ? 'Message request'
         : c.kind === 'group'

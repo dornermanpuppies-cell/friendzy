@@ -1,16 +1,9 @@
 import { create } from 'zustand';
 
+import { previewText } from '@/lib/e2ee/messages';
+import { fetchConversations, fetchMessage, fetchMessages, newClientId, sendEncryptedMessage, uploadEncryptedAttachment, type EncryptedUpload, type LocalAttachment } from '@/services/messaging';
 import { useAuthStore } from '@/store/authStore';
-import {
-  fetchConversations,
-  fetchMessage,
-  fetchMessages,
-  newClientId,
-  sendMessage,
-  uploadChatAttachment,
-  type LocalAttachment,
-} from '@/services/messaging';
-import type { ConversationSummary, InboxFilter, Message, MessageAttachment, MessageKind, MessageMetadata, TypingUser } from '@/types/messaging';
+import type { ConversationSummary, InboxFilter, Message, MessageKind, MessageMetadata, TypingUser } from '@/types/messaging';
 import { getErrorMessage } from '@/utils/errors';
 
 const PAGE = 40;
@@ -37,6 +30,17 @@ interface PendingSend {
   metadata: MessageMetadata;
   attachments: LocalAttachment[];
   replyToId: string | null;
+  forwarded: boolean;
+}
+
+export interface SendInput {
+  conversationId: string;
+  kind?: MessageKind;
+  text?: string | null;
+  metadata?: MessageMetadata;
+  attachments?: LocalAttachment[];
+  replyToId?: string | null;
+  forwarded?: boolean;
 }
 
 interface ChatState {
@@ -60,7 +64,8 @@ interface ChatState {
   applyMemberUpdate: (conversationId: string, userId: string, lastReadAt: string, lastDeliveredAt: string) => void;
   setTyping: (conversationId: string, user: { user_id: string; name: string }, typing: boolean) => void;
 
-  send: (input: { conversationId: string; kind?: MessageKind; text?: string | null; metadata?: MessageMetadata; attachments?: LocalAttachment[]; replyToId?: string | null }) => Promise<void>;
+  /** Sends an end-to-end encrypted message (optimistic bubble first, sealed upload + send in the background). */
+  send: (input: SendInput) => Promise<void>;
   retry: (conversationId: string, clientId: string) => Promise<void>;
   discardFailed: (conversationId: string, clientId: string) => void;
 }
@@ -189,6 +194,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             created_at: message.created_at,
             is_mine: message.is_mine,
             status: message.status,
+            encrypted: message.encrypted,
+            envelope: message.envelope ?? null,
           },
           last_message_at: message.created_at,
           unread_count: message.sender?.id && message.sender.id !== myId ? conv.unread_count + 1 : conv.unread_count,
@@ -230,7 +237,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return { typing: { ...s.typing, [conversationId]: next } };
     }),
 
-  send: async ({ conversationId, kind = 'text', text = null, metadata = {}, attachments = [], replyToId = null }) => {
+  send: async ({ conversationId, kind = 'text', text = null, metadata = {}, attachments = [], replyToId = null, forwarded = false }) => {
     const clientId = newClientId();
     const me = myCard();
     const now = new Date().toISOString();
@@ -260,7 +267,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       my_reaction: null,
       starred: false,
       pinned: false,
-      forwarded: false,
+      forwarded,
       edited_at: null,
       deleted: false,
       expires_at: null,
@@ -268,11 +275,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       client_id: clientId,
       is_mine: true,
       status: 'sending',
+      encrypted: true,
+      verified: true,
       upload_progress: attachments.length ? 0 : undefined,
     };
     set((s) => ({
       messages: { ...s.messages, [conversationId]: mergeMessage(s.messages[conversationId] ?? [], optimistic) },
-      pending: { ...s.pending, [clientId]: { conversationId, kind, text, metadata, attachments, replyToId } },
+      pending: { ...s.pending, [clientId]: { conversationId, kind, text, metadata, attachments, replyToId, forwarded } },
     }));
     get().patchConversation(conversationId, { last_message: { id: clientId, kind, preview: previewFor(optimistic), sender_id: me?.id ?? null, sender_name: me?.display_name ?? null, created_at: now, is_mine: true, status: 'sending' }, last_message_at: now });
     await get().retry(conversationId, clientId);
@@ -285,23 +294,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!userId) return;
     get().patchMessage(conversationId, clientId, { status: 'sending', error: undefined });
     try {
-      const uploaded: Omit<MessageAttachment, 'id'>[] = [];
+      const uploaded: EncryptedUpload[] = [];
       for (let i = 0; i < job.attachments.length; i += 1) {
         const item = job.attachments[i];
         uploaded.push(
-          await uploadChatAttachment(conversationId, userId, item, (p) =>
+          await uploadEncryptedAttachment(conversationId, userId, item, (p) =>
             get().patchMessage(conversationId, clientId, { upload_progress: (i + p.fraction) / job.attachments.length }),
           ),
         );
       }
-      const message = await sendMessage({ conversationId, kind: job.kind, text: job.text, metadata: job.metadata, attachments: uploaded, replyToId: job.replyToId, clientId });
+      const message = await sendEncryptedMessage({ conversationId, userId, kind: job.kind, text: job.text, metadata: job.metadata, attachments: uploaded, replyToId: job.replyToId, clientId, forwarded: job.forwarded });
       set((s) => {
         const pending = { ...s.pending };
         delete pending[clientId];
         return { pending };
       });
       get().upsertMessage(message);
-      get().patchConversation(conversationId, { last_message: { id: message.id, kind: message.kind, preview: previewFor(message), sender_id: userId, sender_name: message.sender?.display_name ?? null, created_at: message.created_at, is_mine: true, status: message.status }, last_message_at: message.created_at, is_archived: false, marked_unread: false });
+      get().patchConversation(conversationId, {
+        last_message: { id: message.id, kind: message.kind, preview: previewFor(message), sender_id: userId, sender_name: message.sender?.display_name ?? null, created_at: message.created_at, is_mine: true, status: message.status, encrypted: message.encrypted, envelope: message.envelope ?? null },
+        last_message_at: message.created_at,
+        is_archived: false,
+        marked_unread: false,
+      });
     } catch (error) {
       get().patchMessage(conversationId, clientId, { status: 'failed', error: getErrorMessage(error), upload_progress: undefined });
     }
@@ -317,38 +331,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 }));
 
-export function previewFor(m: Pick<Message, 'kind' | 'text' | 'deleted'>): string {
-  if (m.deleted) return 'Message deleted';
-  switch (m.kind) {
-    case 'text':
-      return (m.text ?? '').slice(0, 140);
-    case 'image':
-      return '📷 Photo';
-    case 'video':
-      return '🎥 Video';
-    case 'audio':
-      return '🎤 Voice message';
-    case 'document':
-      return `📎 ${m.text || 'Document'}`;
-    case 'sticker':
-      return m.text || 'Sticker';
-    case 'gif':
-      return 'GIF';
-    case 'location':
-      return '📍 Location';
-    case 'post':
-      return 'Shared a post';
-    case 'profile':
-      return 'Shared a profile';
-    case 'story_reply':
-      return `Replied to a story${m.text ? `: ${m.text.slice(0, 100)}` : ''}`;
-    case 'video_share':
-      return 'Shared a video';
-    case 'call':
-      return '📞 Call';
-    default:
-      return m.text ?? '';
-  }
+/** One-line preview for a (decrypted) message; sealed messages this device cannot open stay opaque. */
+export function previewFor(m: Pick<Message, 'kind' | 'text' | 'deleted'> & { decrypt_error?: Message['decrypt_error'] }): string {
+  if (!m.deleted && m.decrypt_error) return '🔒 Encrypted message';
+  return previewText(m);
 }
 
 export function useConversation(id: string | undefined) {

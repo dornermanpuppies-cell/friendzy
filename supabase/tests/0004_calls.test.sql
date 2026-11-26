@@ -11,7 +11,7 @@ begin
 
   perform tests.as_user(alice);
   v_dm := public.start_direct_conversation(bob);
-  perform public.send_message(v_dm, 'text', 'calling you');
+  perform tests.send_plain(v_dm, 'text', 'calling you');
   v_group := public.create_group('Call squad', array[bob, carol]);
 
   -- Start a DM voice call

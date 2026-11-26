@@ -2,7 +2,7 @@
 do $t$
 declare
   alice uuid; bob uuid; carol uuid; dave uuid;
-  v_dm uuid; v_dm2 uuid; v_group uuid; v_msg jsonb; v_msg2 jsonb; v_json jsonb; v_code text; v_req uuid; v_n int; v_story jsonb;
+  v_dm uuid; v_dm2 uuid; v_group uuid; v_msg jsonb; v_msg2 jsonb; v_json jsonb; v_code text; v_req uuid; v_n int;
 begin
   alice := tests.create_user('alice@chat.test', '{"display_name":"Alice","username":"alice","birth_date":"1998-01-01"}');
   bob   := tests.create_user('bob@chat.test',   '{"display_name":"Bob","username":"bob","birth_date":"1997-01-01"}');
@@ -19,12 +19,12 @@ begin
   perform tests.assert_raises($$select public.start_direct_conversation(auth.uid())$$, 'cannot message self', 'CANNOT_MESSAGE_SELF');
   perform tests.assert_raises($$insert into public.conversations (kind) values ('direct')$$, 'conversations not directly insertable', 'permission denied');
 
-  v_msg := public.send_message(v_dm, 'text', 'Hey Bob! 👋', '{}'::jsonb, '[]'::jsonb, null, 'client-1');
+  v_msg := tests.send_plain(v_dm, 'text', 'Hey Bob! 👋', '{}'::jsonb, '[]'::jsonb, null, 'client-1');
   perform tests.assert((v_msg->>'status') = 'sent' and (v_msg->>'is_mine')::boolean, 'message sent with sent status');
-  perform tests.assert((public.send_message(v_dm, 'text', 'Hey Bob! 👋', '{}'::jsonb, '[]'::jsonb, null, 'client-1')->>'id') = (v_msg->>'id'), 'client_id makes sends idempotent');
-  perform tests.assert_raises($$select public.send_message((select id from public.conversations limit 1), 'text', '   ')$$, 'empty text rejected', 'TEXT_REQUIRED');
-  perform tests.assert_raises(format($$select public.send_message('%s', 'image', null, '{}'::jsonb, '[{"path":"%s/%s/x.jpg","kind":"image"}]'::jsonb)$$, v_dm, v_dm, bob), 'attachment path must be under sender folder', 'ATTACHMENT_NOT_OWNED');
-  v_msg2 := public.send_message(v_dm, 'image', 'look', '{}'::jsonb, format('[{"path":"%s/%s/x.jpg","kind":"image","width":10,"height":10}]', v_dm, alice)::jsonb);
+  perform tests.assert((tests.send_plain(v_dm, 'text', 'Hey Bob! 👋', '{}'::jsonb, '[]'::jsonb, null, 'client-1')->>'id') = (v_msg->>'id'), 'client_id makes sends idempotent');
+  perform tests.assert_raises($$select tests.send_plain((select id from public.conversations limit 1), 'text', '   ')$$, 'empty text rejected', 'TEXT_REQUIRED');
+  perform tests.assert_raises(format($$select tests.send_plain('%s', 'image', null, '{}'::jsonb, '[{"path":"%s/%s/x.jpg","kind":"image"}]'::jsonb)$$, v_dm, v_dm, bob), 'attachment path must be under sender folder', 'ATTACHMENT_NOT_OWNED');
+  v_msg2 := tests.send_plain(v_dm, 'image', 'look', '{}'::jsonb, format('[{"path":"%s/%s/x.jpg","kind":"image","width":10,"height":10}]', v_dm, alice)::jsonb);
   perform tests.assert(jsonb_array_length(v_msg2->'attachments') = 1, 'attachment stored');
 
   perform tests.as_user(bob);
@@ -46,14 +46,14 @@ begin
   update public.user_settings set who_can_message = 'friends' where user_id = carol;
   perform tests.as_user(alice);
   v_dm2 := public.start_direct_conversation(carol);
-  v_json := public.send_message(v_dm2, 'text', 'Hi Carol, we met at the meetup');
+  v_json := tests.send_plain(v_dm2, 'text', 'Hi Carol, we met at the meetup');
   perform tests.as_user(carol);
   perform tests.assert((select count(*) from public.get_conversations('inbox')) = 0, 'request not in inbox');
   perform tests.assert((select count(*) from public.get_conversations('requests')) = 1, 'request listed in requests');
-  perform tests.assert_raises(format($$select public.send_message('%s', 'text', 'reply')$$, v_dm2), 'cannot reply before accepting', 'REQUEST_PENDING');
+  perform tests.assert_raises(format($$select tests.send_plain('%s', 'text', 'reply')$$, v_dm2), 'cannot reply before accepting', 'REQUEST_PENDING');
   perform public.respond_message_request(v_dm2, true);
   perform tests.assert((select count(*) from public.get_conversations('inbox')) = 1, 'accepted request moves to inbox');
-  perform public.send_message(v_dm2, 'text', 'Nice to meet you!');
+  perform tests.send_plain(v_dm2, 'text', 'Nice to meet you!');
   update public.user_settings set who_can_message = 'nobody' where user_id = carol;
   perform tests.as_user(dave);
   perform tests.assert_raises(format($$select public.start_direct_conversation('%s')$$, carol), 'messages closed respected', 'MESSAGES_CLOSED');
@@ -62,7 +62,7 @@ begin
   perform tests.as_user(bob);
   perform public.block_user(alice);
   perform tests.as_user(alice);
-  perform tests.assert_raises(format($$select public.send_message('%s', 'text', 'still there?')$$, v_dm), 'blocked users cannot message', 'BLOCKED');
+  perform tests.assert_raises(format($$select tests.send_plain('%s', 'text', 'still there?')$$, v_dm), 'blocked users cannot message', 'BLOCKED');
   perform tests.assert((select count(*) from public.get_conversations('inbox') j where (j->>'id')::uuid = v_dm) = 0, 'blocked conversation hidden from inbox');
   perform tests.as_user(bob);
   perform public.unblock_user(alice);
@@ -71,12 +71,12 @@ begin
   -- Message actions: reply, edit, delete, react, star, pin, forward, search
   -- -------------------------------------------------------------------------
   perform tests.as_user(alice);
-  v_json := public.send_message(v_dm, 'text', 'Replying to you', '{}'::jsonb, '[]'::jsonb, (v_msg->>'id')::uuid);
+  v_json := tests.send_plain(v_dm, 'text', 'Replying to you', '{}'::jsonb, '[]'::jsonb, (v_msg->>'id')::uuid);
   perform tests.assert((v_json->'reply_to'->>'id') = (v_msg->>'id') and (v_json->'reply_to'->>'preview') = 'Hey Bob! 👋', 'reply carries preview');
-  v_json := public.edit_message((v_json->>'id')::uuid, 'Replying to you (edited)');
+  v_json := tests.edit_plain((v_json->>'id')::uuid, 'Replying to you (edited)');
   perform tests.assert((v_json->>'edited_at') is not null and (v_json->>'text') like '%(edited)', 'message edited');
   perform tests.as_user(bob);
-  perform tests.assert_raises(format($$select public.edit_message('%s', 'hack')$$, v_json->>'id'), 'cannot edit others'' messages', 'MESSAGE_NOT_FOUND');
+  perform tests.assert_raises(format($$select tests.edit_plain('%s', 'hack')$$, v_json->>'id'), 'cannot edit others'' messages', 'MESSAGE_NOT_FOUND');
   perform public.react_message((v_msg->>'id')::uuid, '❤️');
   perform public.star_message((v_msg->>'id')::uuid, true);
   perform tests.assert(((public.get_message((v_msg->>'id')::uuid))->'reactions'->0->>'count')::int = 1, 'reaction counted');
@@ -91,7 +91,7 @@ begin
   perform tests.as_user(alice);
   perform tests.assert((select count(*) from public.get_messages(v_dm) j where (j->>'id') = (v_msg2->>'id')) = 1, 'delete for me keeps message for others');
   perform tests.as_user(bob);
-  v_json := public.send_message(v_dm, 'text', 'bob says hi');
+  v_json := tests.send_plain(v_dm, 'text', 'bob says hi');
   perform tests.as_user(alice);
   perform tests.assert_raises(format($$select public.delete_message('%s', true)$$, v_json->>'id'), 'cannot delete others'' messages for everyone in DM', 'FORBIDDEN');
   perform public.delete_message((v_msg->>'id')::uuid, true);
@@ -111,13 +111,13 @@ begin
   perform tests.assert((select count(*) from public.get_conversations('archived')) = 1, 'archived filter');
   perform tests.assert((select count(*) from public.get_conversations('inbox') j where (j->>'id')::uuid = v_dm) = 0, 'archived hidden from inbox');
   perform tests.as_user(bob);
-  perform public.send_message(v_dm, 'text', 'unarchive me');
+  perform tests.send_plain(v_dm, 'text', 'unarchive me');
   perform tests.as_user(alice);
   perform tests.assert((select count(*) from public.get_conversations('inbox') j where (j->>'id')::uuid = v_dm) = 1, 'new message un-archives');
 
   -- disappearing messages
   perform public.set_disappearing(v_dm, 86400);
-  v_json := public.send_message(v_dm, 'text', 'this will vanish');
+  v_json := tests.send_plain(v_dm, 'text', 'this will vanish');
   perform tests.assert((v_json->>'expires_at') is not null, 'disappearing message gets expiry');
   perform tests.as_admin_db();
   update public.messages set expires_at = now() - interval '1 second' where id = (v_json->>'id')::uuid;
@@ -142,13 +142,13 @@ begin
   perform tests.as_user(bob);
   perform tests.assert(public.add_members(v_group, array[dave]) = 1, 'admin can add members');
   perform tests.assert((public.get_conversation(v_group)->>'members_count')::int = 4, 'members counter updated');
-  perform public.send_message(v_group, 'text', 'Welcome Dave!');
+  perform tests.send_plain(v_group, 'text', 'Welcome Dave!');
   perform tests.as_user(dave);
   perform tests.assert((select count(*) from public.get_messages(v_group) j where (j->>'kind') = 'text') = 1, 'new member sees group messages');
   perform tests.as_user(alice);
   perform public.remove_member(v_group, dave);
   perform tests.as_user(dave);
-  perform tests.assert_raises(format($$select public.send_message('%s', 'text', 'am I still here?')$$, v_group), 'removed member cannot send', 'CONVERSATION_NOT_FOUND');
+  perform tests.assert_raises(format($$select tests.send_plain('%s', 'text', 'am I still here?')$$, v_group), 'removed member cannot send', 'CONVERSATION_NOT_FOUND');
   perform tests.assert((select count(*) from public.messages where conversation_id = v_group) = 0, 'removed member cannot read group (RLS)');
 
   -- invite links + join approval
@@ -181,16 +181,12 @@ begin
 
   -- forward + unread total + story reply
   perform tests.as_user(bob);
-  v_msg := public.send_message(v_group, 'text', 'forward me');
-  perform tests.assert(public.forward_messages(array[(v_msg->>'id')::uuid], array[v_dm]) = 1, 'forwarded one message');
+  v_msg := tests.send_plain(v_group, 'text', 'forward me');
+  perform tests.assert(tests.forward_plain(array[(v_msg->>'id')::uuid], array[v_dm]) = 1, 'forwarded one message');
   perform tests.assert(((select j from public.get_messages(v_dm) j order by j->>'created_at' desc limit 1)->>'forwarded')::boolean, 'forwarded flag set');
   perform tests.as_user(alice);
   perform tests.assert(public.get_unread_total() >= 1, 'unread total counts new messages');
-  v_story := public.create_story('text', null, null, 'Story time', '{}'::jsonb, '[]'::jsonb, null, null, 'everyone');
-  perform tests.as_user(carol);
-  perform public.follow_user(alice);
-  v_json := public.send_story_reply((v_story->>'id')::uuid, 'Love this!');
-  perform tests.assert((v_json->>'kind') = 'story_reply' and (v_json->'metadata'->>'story_id') = (v_story->>'id'), 'story reply creates a DM message with story reference');
+  -- Story replies are end-to-end encrypted since 0015 and covered in 0015_e2ee.test.sql.
 
   -- RLS: outsiders see nothing
   perform tests.as_user(dave);

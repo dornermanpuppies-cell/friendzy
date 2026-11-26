@@ -128,6 +128,9 @@ export default function ConversationInfoScreen() {
         </View>
       </View>
 
+      <ListSection title="Encryption">
+        <ListItem icon="lock-closed-outline" title="End-to-end encrypted" subtitle={isGroup ? 'Verify each member’s security code' : `Verify ${other?.display_name ?? 'their'} security code`} onPress={() => router.navigate(`/chat/${conversationId}/encryption` as never)} />
+      </ListSection>
       <ListSection title="Notifications & display">
         <ListItem icon={c.is_muted ? 'notifications-off-outline' : 'notifications-outline'} title="Mute notifications" value={c.is_muted ? 'Muted' : 'On'} onPress={() => (c.is_muted ? run(() => setConversationSettings(conversationId, { mutedUntil: null }), 'Unmuted') : setMuteOpen(true))} />
         <ListItem icon="color-palette-outline" title="Wallpaper" value={WALLPAPERS.find((w) => w.id === (c.wallpaper ?? 'default'))?.label ?? 'Night'} onPress={() => setWallOpen(true)} />

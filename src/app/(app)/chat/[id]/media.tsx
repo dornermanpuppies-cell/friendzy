@@ -13,8 +13,10 @@ import { Text } from '@/components/ui/Text';
 import { AttachmentViewer } from '@/features/chat/AttachmentViewer';
 import { VoiceNotePlayer } from '@/features/chat/VoiceNotePlayer';
 import { useAsync } from '@/hooks/useAsync';
-import { useSignedUrl } from '@/hooks/useSignedUrl';
-import { getSharedMedia, getSignedChatUrl } from '@/services/messaging';
+import { useAttachmentSource } from '@/hooks/useAttachmentSource';
+import { openAttachment } from '@/services/attachments';
+import { getSharedMedia } from '@/services/messaging';
+import { useThreadMessages } from '@/store/chatStore';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, radius, spacing } from '@/theme/tokens';
 import type { Message, MessageAttachment } from '@/types/messaging';
@@ -23,7 +25,7 @@ import { formatDate } from '@/utils/format';
 type Kind = 'media' | 'docs' | 'audio' | 'links';
 
 function Thumb({ attachment, size, onPress }: { attachment: MessageAttachment; size: number; onPress: () => void }) {
-  const url = useSignedUrl(attachment.thumbnail_path ?? attachment.path);
+  const { uri: url } = useAttachmentSource(attachment, 'thumb');
   const { colors } = useTheme();
   return (
     <Pressable onPress={onPress} style={{ width: size, height: size, padding: 1 }}>
@@ -38,7 +40,7 @@ function Thumb({ attachment, size, onPress }: { attachment: MessageAttachment; s
 function AudioRow({ message }: { message: Message }) {
   const { colors } = useTheme();
   const a = message.attachments[0];
-  const url = useSignedUrl(a?.path);
+  const { uri: url } = useAttachmentSource(a, 'full');
   return (
     <View style={[styles.row, { borderBottomColor: colors.border }]}>
       <View style={{ flex: 1 }}>
@@ -58,16 +60,24 @@ export default function SharedMediaScreen() {
   const [kind, setKind] = useState<Kind>('media');
   const [viewer, setViewer] = useState<MessageAttachment | null>(null);
   const query = useAsync(() => getSharedMedia(String(id), kind), [id, kind]);
+  // Links inside end-to-end encrypted messages are only known on this device (from the loaded thread).
+  const thread = useThreadMessages(String(id));
   const columns = width >= 768 ? 4 : 3;
   const cell = Math.floor(Math.min(width, 640) / columns);
 
   const openDoc = async (a: MessageAttachment) => {
     try {
-      await Linking.openURL(await getSignedChatUrl(a.path));
+      await openAttachment(a);
     } catch {
       /* ignore */
     }
   };
+
+  const linkMessages: Message[] = kind === 'links'
+    ? [...(query.data ?? []), ...thread.filter((m) => m.encrypted && !m.deleted && /https?:\/\//.test(m.text ?? ''))]
+        .filter((m, index, all) => all.findIndex((x) => x.id === m.id) === index)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    : [];
 
   return (
     <Screen header={<ScreenHeader title="Media, links & docs" fallbackHref={`/chat/${id}/info`} />} scroll padded={false}>
@@ -80,8 +90,8 @@ export default function SharedMediaScreen() {
         <View style={{ padding: spacing.lg }}>
           <Skeleton height={200} />
         </View>
-      ) : (query.data ?? []).length === 0 ? (
-        <EmptyState compact icon="folder-open-outline" title="Nothing here yet" description="Shared items from this conversation appear here." />
+      ) : (kind === 'links' ? linkMessages : (query.data ?? [])).length === 0 ? (
+        <EmptyState compact icon="folder-open-outline" title="Nothing here yet" description={kind === 'links' ? 'Links from messages loaded on this device appear here. Encrypted messages are only indexed locally.' : 'Shared items from this conversation appear here.'} />
       ) : kind === 'media' ? (
         <View style={styles.grid}>
           {(query.data ?? []).flatMap((m) => m.attachments.map((a) => <Thumb key={a.id} attachment={a} size={cell} onPress={() => setViewer(a)} />))}
@@ -108,7 +118,7 @@ export default function SharedMediaScreen() {
           )),
         )
       ) : (
-        (query.data ?? []).map((m) => {
+        linkMessages.map((m) => {
           const links = (m.text ?? '').match(/https?:\/\/[^\s]+/g) ?? [];
           return links.map((link) => (
             <Pressable key={`${m.id}-${link}`} onPress={() => Linking.openURL(link)} style={[styles.row, { borderBottomColor: colors.border }]}>

@@ -82,7 +82,7 @@ begin
   -- Calls: disconnects seen by LiveKit close the call
   perform tests.as_user(alice);
   v_conv := public.start_direct_conversation(bob);
-  perform public.send_message(v_conv, 'text', 'calling you');
+  perform tests.send_plain(v_conv, 'text', 'calling you');
   v_call := public.start_call(v_conv, 'voice');
   v_call_id := (v_call->>'id')::uuid;
   perform tests.as_user(bob);

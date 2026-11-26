@@ -142,3 +142,17 @@ for a custom domain. Netlify never needs a server secret.
 The website reads the latest release through the GitHub API using `EXPO_PUBLIC_GITHUB_REPO` (`owner/repo`; Netlify derives it
 from the connected repository). Release downloads are public only when the repository is public; otherwise set
 `EXPO_PUBLIC_ANDROID_APK_URL` to a public copy of the file.
+
+## End-to-end encryption (no configuration needed)
+
+Nothing to configure or to keep secret on the server: devices generate their own keys and register only public keys through
+`register_e2ee_device`. Operational notes:
+
+- `push-dispatch` must be at least the version deployed with migration 0015 — it receives `record.encrypted` instead of the
+  envelope and sends the generic text "New message" for sealed messages.
+- `e2ee_devices` is the public-key directory (RLS: users see their own rows; other users' public keys are served by
+  `e2ee_user_devices` / `e2ee_recipients`, hidden between blocked users). Revoking a device (`revoke_e2ee_device`) stops new
+  messages from being sealed for it; it does not sign the device out — that is Settings → Security → Active sessions.
+- There is no server-side way to read, recover or reset message content. Support can only help users re-send from a device
+  that still has the keys.
+- Admin moderation of sealed messages relies on the reporter's device attaching the decrypted text to the report.

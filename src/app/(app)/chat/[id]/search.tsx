@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
 import { Avatar } from '@/components/ui/Avatar';
@@ -11,6 +11,7 @@ import { SkeletonList } from '@/components/ui/Skeleton';
 import { Text } from '@/components/ui/Text';
 import { useAsync } from '@/hooks/useAsync';
 import { searchMessages } from '@/services/messaging';
+import { useThreadMessages } from '@/store/chatStore';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing } from '@/theme/tokens';
 import { formatDate } from '@/utils/format';
@@ -32,11 +33,22 @@ export default function ChatSearchScreen() {
   }, [query]);
 
   const results = useAsync(() => (debounced.length >= 2 ? searchMessages(debounced, id ? String(id) : undefined) : Promise.resolve([])), [debounced, id]);
+  // End-to-end encrypted messages cannot be searched by the server; match the ones decrypted on this device.
+  const thread = useThreadMessages(id ? String(id) : undefined);
+  const combined = useMemo(() => {
+    if (debounced.length < 2) return [];
+    const needle = debounced.toLowerCase();
+    const local = thread.filter((m) => m.encrypted && !m.deleted && (m.text ?? '').toLowerCase().includes(needle));
+    return [...(results.data ?? []), ...local].filter((m, index, all) => all.findIndex((x) => x.id === m.id) === index).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }, [debounced, results.data, thread]);
 
   return (
     <Screen header={<ScreenHeader title="Search messages" fallbackHref={id ? `/chat/${id}` : '/inbox'} />} padded={false}>
       <View style={{ padding: spacing.lg }}>
         <Input placeholder="Search in conversation" leftIcon="search-outline" value={query} onChangeText={setQuery} autoFocus autoCapitalize="none" />
+        <Text variant="caption" color="textMuted" style={{ marginTop: spacing.sm }}>
+          🔒 Encrypted messages are searched on this device only{id ? ' — scroll up in the chat to load older ones first' : ''}.
+        </Text>
       </View>
       {results.loading && debounced.length >= 2 ? (
         <View style={{ paddingHorizontal: spacing.lg }}>
@@ -44,7 +56,7 @@ export default function ChatSearchScreen() {
         </View>
       ) : (
         <FlatList
-          data={results.data ?? []}
+          data={combined}
           keyExtractor={(m) => m.id}
           contentContainerStyle={{ paddingBottom: spacing['3xl'] }}
           renderItem={({ item }) => (

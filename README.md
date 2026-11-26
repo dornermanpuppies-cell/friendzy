@@ -60,4 +60,4 @@ scripts/         db test harness, SQL combiner, Netlify redirects, LiveKit webho
 - Only `EXPO_PUBLIC_*` values are bundled into clients. Secrets live in Supabase Edge Function secrets.
 - Every table is protected by Row Level Security; privileged mutations go through server-side functions.
 - Admin roles are granted in SQL / by a super admin (`public.admin_roles`), never from the client.
-- Messages are protected by RLS and signed URLs; they are not end-to-end encrypted and the app does not claim so.
+- Chat messages and attachments are end-to-end encrypted with per-device keys (X25519 / Ed25519, XChaCha20-Poly1305); the server stores sealed envelopes it cannot read and refuses unencrypted sends. Metadata, calls, lives and the social feed are not end-to-end encrypted — the exact threat model and limits are in `docs/ARCHITECTURE.md` and inside the app (Settings → Chats → End-to-end encryption).

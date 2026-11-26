@@ -320,6 +320,11 @@ export type Database = {
       interests: Table<InterestRow, never, never>;
       user_interests: Table<UserInterestRow, { user_id: string; interest_id: number }, never>;
       user_languages: Table<UserLanguageRow, { user_id: string; code: string }, never>;
+      e2ee_devices: Table<
+        { id: string; user_id: string; device_id: string; platform: 'android' | 'ios' | 'web'; name: string | null; identity_key: string; signing_key: string; created_at: string; last_seen_at: string; revoked_at: string | null },
+        never,
+        never
+      >;
       follows: Table<
         FollowRow,
         never,
@@ -524,7 +529,18 @@ export type Database = {
       search_messages: { Args: { p_query: string; p_conversation?: string | null; p_limit?: number }; Returns: Json[] };
       get_starred_messages: { Args: { p_limit?: number }; Returns: Json[] };
       get_shared_media: { Args: { p_conversation: string; p_kind?: string; p_limit?: number; p_before?: string | null }; Returns: Json[] };
-      send_story_reply: { Args: { p_story: string; p_text: string }; Returns: Json };
+      send_story_reply: { Args: { p_story: string; p_envelope: Json; p_client_id?: string | null }; Returns: Json };
+      // ---- Phase 3b: end-to-end encryption ----
+      register_e2ee_device: { Args: { p_device_id: string; p_platform: string; p_identity_key: string; p_signing_key: string; p_name?: string | null }; Returns: Json };
+      revoke_e2ee_device: { Args: { p_device_id: string }; Returns: undefined };
+      get_e2ee_devices: { Args: Record<string, never>; Returns: Json };
+      e2ee_user_devices: { Args: { p_user: string }; Returns: Json };
+      e2ee_recipients: { Args: { p_conversation: string }; Returns: Json };
+      send_encrypted_message: {
+        Args: { p_conversation: string; p_kind: string; p_envelope: Json; p_attachments?: Json; p_reply_to?: string | null; p_client_id?: string | null; p_forwarded?: boolean };
+        Returns: Json;
+      };
+      edit_encrypted_message: { Args: { p_id: string; p_envelope: Json }; Returns: Json };
       // ---- Phase 4: calls ----
       start_call: { Args: { p_conversation: string; p_kind?: string }; Returns: Json };
       answer_call: { Args: { p_call: string }; Returns: Json };

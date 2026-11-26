@@ -86,7 +86,7 @@ begin
   perform tests.assert(v_json->>'account_status' = 'suspended' and (v_json->>'active_sanctions')::int = 1, 'suspended with sanction');
   perform tests.as_user(bob);
   perform tests.assert_raises($$select public.create_post('text', 'nope')$$, 'suspended users cannot post', 'ACCOUNT_');
-  perform tests.assert_raises(format($$select public.send_message((select public.start_direct_conversation('%s')), 'text', 'hey')$$, alice), 'suspended users cannot message', 'ACCOUNT_');
+  perform tests.assert_raises(format($$select tests.send_plain((select public.start_direct_conversation('%s')), 'text', 'hey')$$, alice), 'suspended users cannot message', 'ACCOUNT_');
   perform tests.as_user(owner_id);
   perform public.admin_set_account_status(bob, 'active', 'Appeal accepted');
   perform tests.as_user(bob);

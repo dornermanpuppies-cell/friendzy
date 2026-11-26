@@ -20,9 +20,11 @@ export interface ReportSheetProps {
   targetType: ReportTargetType;
   targetId: string;
   targetLabel?: string;
+  /** Content decrypted on the reporter's device (end-to-end encrypted messages are unreadable to the server). */
+  contextText?: string;
 }
 
-export function ReportSheet({ visible, onClose, targetType, targetId, targetLabel }: ReportSheetProps) {
+export function ReportSheet({ visible, onClose, targetType, targetId, targetLabel, contextText }: ReportSheetProps) {
   const { colors } = useTheme();
   const toast = useToast();
   const userId = useAuthStore((s) => s.user?.id);
@@ -41,7 +43,9 @@ export function ReportSheet({ visible, onClose, targetType, targetId, targetLabe
     if (!reason || !userId) return;
     setBusy(true);
     try {
-      await reportTarget({ reporterId: userId, targetType, targetId, reason, details });
+      const trimmed = details.trim();
+      const fullDetails = contextText ? `${trimmed}${trimmed ? '\n\n' : ''}Reported message (decrypted on the reporter's device): ${contextText.slice(0, 1000)}` : details;
+      await reportTarget({ reporterId: userId, targetType, targetId, reason, details: fullDetails });
       setDone(true);
     } catch (error) {
       toast.error(getErrorMessage(error));

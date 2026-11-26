@@ -27,6 +27,9 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - '!src/**/__tests__/**'
+      - '!**/*.test.ts'
+      - '!**/*.test.tsx'
       - 'assets/**'
       - 'plugins/**'
       - 'app.config.ts'

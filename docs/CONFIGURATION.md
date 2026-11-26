@@ -44,6 +44,36 @@ Where every credential lives, who may see it, and what it unlocks. **Never paste
 - Entitlement `friendzy_premium`; offering `default`; `$rc_monthly` → `friendzy_premium_monthly`, `$rc_annual` → `friendzy_premium_yearly`.
 - Coins are consumables whose product identifiers equal `coin_packages.sku`; the webhook credits coins through the ledger (`credit_coins`).
 - The database is the source of truth: the app waits for the webhook after a purchase (store entitlement is only a fallback signal).
+
+### Webhook (deployed on the live project, 2026-11-25)
+| Setting in RevenueCat → Project → Integrations → Webhooks | Value |
+| --- | --- |
+| Webhook URL | `https://gwdpsrjmfrgcloacvdlg.supabase.co/functions/v1/revenuecat-webhook` |
+| Authorization header value | exactly the value of the `REVENUECAT_WEBHOOK_AUTH` function secret (with or without a `Bearer ` prefix) |
+| Events | all (the function stores every event; unknown types are recorded without side effects) |
+
+Function secrets (Dashboard → Edge Functions → Secrets): `REVENUECAT_WEBHOOK_AUTH` (required — every request is refused
+without it, 401 on mismatch, compared in constant time), `REVENUECAT_SECRET_API_KEY` (recommended — after each subscription
+event the function re-reads the subscriber from `GET /v1/subscribers/{app_user_id}` and derives the Premium status from the
+*current* entitlement; without it, or if the API is unreachable, the authenticated event body is used), optional
+`REVENUECAT_IGNORE_SANDBOX=true` (store sandbox events without granting anything) and `REVENUECAT_ENTITLEMENT_ID`
+(default `friendzy_premium`).
+
+Behaviour: `INITIAL_PURCHASE`, `RENEWAL`, `PRODUCT_CHANGE`, `UNCANCELLATION`, `SUBSCRIPTION_EXTENDED`,
+`TEMPORARY_ENTITLEMENT_GRANT` → active/trialing; `CANCELLATION` → access until expiry, then cancelled (refunds expire at
+once); `BILLING_ISSUE` → billing_issue while in the grace period; `SUBSCRIPTION_PAUSED` → paused; `EXPIRATION` → expired;
+`TRANSFER` → previous owner expired, new owner re-synced; coin SKUs: `NON_RENEWING_PURCHASE` credits once per store
+transaction, `CANCELLATION` refunds; `SUBSCRIBER_ALIAS`, `INVOICE_ISSUANCE`, `VIRTUAL_CURRENCY_TRANSACTION`,
+`REFUND_REVERSED` are stored only (a reversed coin refund is flagged for manual review). Every RevenueCat event id is stored
+once (`subscription_events.event_id` unique), so retries answer `200 {"ok":true,"duplicate":true}` without a second write;
+a database failure answers 500 so RevenueCat retries. Entitlements and coins are only ever written through SECURITY DEFINER
+RPCs restricted to the service role (`sync_subscription`, `record_coin_purchase`, `refund_coin_purchase`); clients can never
+edit them. Code: `supabase/functions/revenuecat-webhook/index.ts` + `_shared/revenuecat/handler.ts` (Jest-covered).
+
+Verify from RevenueCat: Webhooks → your webhook → **Send test event** → the function answers `200 {"ok":true,"test":true}`
+and the delivery shows as successful. Then make a sandbox purchase with a development build and check
+`subscription_events` / `subscriptions` / `coin_purchases` in the Table Editor.
+
 - ⚠️ A pasted RevenueCat snippet referenced a different project ("BFF: Make new friends, meet up", entitlement `bff_make_new_friends_meet_up_pro`,
   SwiftUI). Friendzy uses the Friendzy identifiers above unless you decide otherwise; the test key (`test_…`) can be used with development builds.
 

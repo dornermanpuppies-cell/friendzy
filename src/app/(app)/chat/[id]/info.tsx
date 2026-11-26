@@ -14,6 +14,8 @@ import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Sheet } from '@/components/ui/Sheet';
 import { Text } from '@/components/ui/Text';
 import { useToast } from '@/components/ui/Toast';
+import { WallpaperSheet } from '@/features/chat/WallpaperSheet';
+import { isImageWallpaper } from '@/services/wallpapers';
 import { WALLPAPERS } from '@/features/chat/wallpapers';
 import { FriendButton } from '@/features/discover/FriendButton';
 import { confirmAction } from '@/features/feed/usePostActions';
@@ -133,7 +135,7 @@ export default function ConversationInfoScreen() {
       </ListSection>
       <ListSection title="Notifications & display">
         <ListItem icon={c.is_muted ? 'notifications-off-outline' : 'notifications-outline'} title="Mute notifications" value={c.is_muted ? 'Muted' : 'On'} onPress={() => (c.is_muted ? run(() => setConversationSettings(conversationId, { mutedUntil: null }), 'Unmuted') : setMuteOpen(true))} />
-        <ListItem icon="color-palette-outline" title="Wallpaper" value={WALLPAPERS.find((w) => w.id === (c.wallpaper ?? 'default'))?.label ?? 'Night'} onPress={() => setWallOpen(true)} />
+        <ListItem icon="color-palette-outline" title="Wallpaper" value={isImageWallpaper(c.wallpaper) ? 'Your photo' : (WALLPAPERS.find((w) => w.id === (c.wallpaper ?? 'default'))?.label ?? 'Night')} onPress={() => setWallOpen(true)} />
         <ListItem icon="timer-outline" title="Disappearing messages" value={DISAPPEARING_OPTIONS.find((o) => o.seconds === c.disappearing_seconds)?.label ?? 'Off'} onPress={() => (isGroup && !c.is_admin ? toast.info('Only admins can change this') : setDisOpen(true))} />
         <ListItem icon={c.is_pinned ? 'pin' : 'pin-outline'} title="Pin chat" switchValue={c.is_pinned} onSwitchChange={(v) => run(() => setConversationSettings(conversationId, { isPinned: v }))} />
         <ListItem icon="archive-outline" title="Archive chat" switchValue={c.is_archived} onSwitchChange={(v) => run(() => setConversationSettings(conversationId, { isArchived: v }))} />
@@ -188,19 +190,14 @@ export default function ConversationInfoScreen() {
         ))}
         <View style={{ height: spacing.lg }} />
       </Sheet>
-      <Sheet visible={wallOpen} onClose={() => setWallOpen(false)} title="Chat wallpaper">
-        <View style={styles.wallGrid}>
-          {WALLPAPERS.map((w) => (
-            <Pressable key={w.id} onPress={() => { setWallOpen(false); void run(() => setConversationSettings(conversationId, { wallpaper: w.id === 'default' ? null : w.id })); }} style={[styles.wallTile, { borderColor: (c.wallpaper ?? 'default') === w.id ? colors.primary : 'transparent' }]} accessibilityLabel={`${w.label} wallpaper`}>
-              <LinearGradient colors={w.colors} style={StyleSheet.absoluteFill} />
-              <Text variant="caption" color={w.id === 'lavender' || w.id === 'cream' ? palette.ink : palette.white} style={styles.wallLabel}>
-                {w.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={{ height: spacing.lg }} />
-      </Sheet>
+      <WallpaperSheet
+        visible={wallOpen}
+        onClose={() => setWallOpen(false)}
+        value={c.wallpaper}
+        userId={user?.id ?? ''}
+        clearLabel="Use my default wallpaper"
+        onSelect={(next) => run(() => setConversationSettings(conversationId, { wallpaper: next }))}
+      />
       <Sheet visible={disOpen} onClose={() => setDisOpen(false)} title="Disappearing messages" subtitle="New messages disappear for everyone after the selected time.">
         {DISAPPEARING_OPTIONS.map((o) => (
           <ListItem key={o.seconds} title={o.label} right={c.disappearing_seconds === o.seconds ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : undefined} onPress={() => { setDisOpen(false); void run(() => setDisappearing(conversationId, o.seconds)); }} showChevron={false} />

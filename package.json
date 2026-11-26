@@ -30,7 +30,6 @@
     "qa:serve": "node scripts/qa/serve-dist.mjs dist --port 4173",
     "qa:e2e": "node scripts/qa/e2e.mjs",
     "functions:bundle": "node scripts/bundle-function.mjs game-engine && node scripts/bundle-function.mjs push-dispatch",
-    "functions:vendor-webpush": "bash scripts/vendor-webpush.sh",
     "qa:hydration": "node scripts/qa/hydration-diff.mjs",
     "qa:scroll-audit": "node scripts/qa/scroll-audit.mjs",
     "qa:keyboard": "node scripts/qa/keyboard-check.mjs",

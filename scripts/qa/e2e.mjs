@@ -39,7 +39,7 @@ function loadEnvLocal() {
 loadEnvLocal();
 
 const args = process.argv.slice(2);
-const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,social,story,search,push,chat,scroll,call,live,games,smoke').split(',');
+const only = (args.includes('--only') ? args[args.indexOf('--only') + 1] : 'notifications,social,story,search,push,chat,scroll,archive,call,live,games,smoke').split(',');
 const headed = args.includes('--headed');
 const BASE = (process.env.QA_BASE_URL ?? 'http://127.0.0.1:4173').replace(/\/$/, '');
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -430,11 +430,18 @@ async function liveScenario(alice, bob) {
   // Viewer joins and the host sees the count.
   await bob.goto(`/live/${liveId}`);
   await bob.page.locator('[aria-label="Gift"]').first().waitFor({ state: 'visible', timeout: 60_000 });
-  await sleep(2000);
+  // The comment box only exists once the broadcast is running for this viewer, which can lag the host.
+  const running = await waitFor(async () => {
+    const seen = await rpc(bob.session, 'get_live', { p_id: liveId });
+    return seen?.status === 'live' ? seen : null;
+  }, 30_000);
+  if (!running) throw new Error('the broadcast never reached the viewer as live');
 
   // Comment from the viewer reaches the room.
   const comment = `hello from the harness ${stamp}`;
-  await bob.page.locator('input[placeholder="Say something…"], textarea[placeholder="Say something…"]').first().fill(comment);
+  const commentBox = bob.page.locator('input[placeholder="Say something…"], textarea[placeholder="Say something…"]').first();
+  await commentBox.waitFor({ state: 'visible', timeout: 60_000 });
+  await commentBox.fill(comment);
   await bob.clickLabel('Send comment');
   await alice.waitForText(comment, 30_000);
 
@@ -491,6 +498,106 @@ async function liveScenario(alice, bob) {
     featuredQuestion: Boolean(final.featured_question),
     blockedWordRejected: true,
   };
+}
+
+/**
+ * Archiving the way people expect it: an archived chat stays archived when the other person writes,
+ * it is counted on one row at the top of the inbox, and turning the switch off restores the old
+ * behaviour of a new message pulling the chat back.
+ */
+async function archiveScenario(alice, bob, conversationId) {
+  const stamp = Date.now().toString(36);
+  const settings = async (session, patch) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/user_settings?user_id=eq.${session.user.id}`, {
+      method: 'PATCH',
+      headers: { apikey: ANON, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(`settings patch failed: ${res.status} ${await res.text()}`);
+    return (await res.json())[0];
+  };
+
+  // Start from the documented default.
+  await settings(alice.session, { keep_chats_archived: true });
+  await rpc(alice.session, 'set_conversation_settings', { p_conversation: conversationId, p_is_archived: true });
+
+  // Bob writes. Alice's copy must stay in the archive.
+  await bob.goto(`/chat/${conversationId}`);
+  const box = bob.page.locator('input[placeholder="Message"], textarea[placeholder="Message"]').first();
+  await box.waitFor({ state: 'visible', timeout: 60_000 });
+  await box.fill(`archived ping ${stamp}`);
+  await bob.clickLabel('Send');
+  await sleep(2500);
+
+  const inbox = await rpc(alice.session, 'get_conversations', { p_filter: 'inbox', p_limit: 30, p_before: null });
+  if ((inbox ?? []).some((c) => c.id === conversationId)) throw new Error('a new message pulled the chat out of the archive while "keep chats archived" was on');
+  const summary = await rpc(alice.session, 'get_archived_summary', {});
+  if ((summary?.chats ?? 0) < 1) throw new Error(`the archived row does not count the chat: ${JSON.stringify(summary)}`);
+  if ((summary?.unread_chats ?? 0) < 1) throw new Error('the archived row shows no unread chat');
+
+  // The inbox shows the single Archived row with that count.
+  await alice.goto('/inbox');
+  await alice.waitForText('Archived', 45_000);
+
+  // Opening the archive shows the chat and the switch.
+  await alice.goto('/chat/archived');
+  await alice.waitForText('Keep chats archived', 45_000);
+  await alice.waitForText('Arena QA Bob', 45_000);
+
+  // Switch off: the next message pulls it back, the way it used to work.
+  await settings(alice.session, { keep_chats_archived: false });
+  await rpc(alice.session, 'set_conversation_settings', { p_conversation: conversationId, p_is_archived: true });
+  await box.fill(`unarchive ping ${stamp}`);
+  await bob.clickLabel('Send');
+  const back = await waitFor(async () => {
+    const list = await rpc(alice.session, 'get_conversations', { p_filter: 'inbox', p_limit: 30, p_before: null });
+    return (list ?? []).some((c) => c.id === conversationId) ? true : null;
+  }, 15_000);
+  if (!back) throw new Error('with "keep chats archived" off a new message did not unarchive the chat');
+
+  // Leave the account on the default.
+  await settings(alice.session, { keep_chats_archived: true });
+  await rpc(alice.session, 'set_conversation_settings', { p_conversation: conversationId, p_is_archived: false });
+  return { keptArchived: true, archivedRow: summary.chats, unreadChats: summary.unread_chats, unarchivesWhenSwitchedOff: true };
+}
+
+/** A photo from the library becomes the chat background, and only the person who set it sees it. */
+async function wallpaperScenario(alice, bob, conversationId) {
+  // A tiny PNG stands in for a picked photo: the picker itself is the operating system's, the part
+  // worth checking is upload → private bucket → signed URL → rendered behind the messages.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z/C/HgAGgwJ/lK3Q6wAAAABJRU5ErkJggg==', 'base64');
+  const path = `${alice.userId}/wallpaper-qa-${Date.now()}.png`;
+  const upload = await fetch(`${SUPABASE_URL}/storage/v1/object/wallpapers/${path}`, {
+    method: 'POST',
+    headers: { apikey: ANON, Authorization: `Bearer ${alice.session.access_token}`, 'Content-Type': 'image/png' },
+    body: png,
+  });
+  if (!upload.ok) throw new Error(`wallpaper upload failed: ${upload.status} ${await upload.text()}`);
+
+  // Someone else cannot read it out of the private bucket.
+  const theft = await fetch(`${SUPABASE_URL}/storage/v1/object/wallpapers/${path}`, { headers: { apikey: ANON, Authorization: `Bearer ${bob.session.access_token}` } });
+  if (theft.ok) throw new Error('another account could download the wallpaper from the private bucket');
+
+  await rpc(alice.session, 'set_conversation_settings', { p_conversation: conversationId, p_wallpaper: `img:${path}`, p_set_wallpaper: true });
+  const mine = await rpc(alice.session, 'get_conversation', { p_conversation: conversationId }).catch(() => null);
+  const stored = mine?.wallpaper ?? (await rpc(alice.session, 'get_conversations', { p_filter: 'inbox', p_limit: 30, p_before: null }) ?? []).find((c) => c.id === conversationId)?.wallpaper;
+  if (stored !== `img:${path}`) throw new Error(`the photo wallpaper was not stored (got ${stored})`);
+
+  // Alice's chat shows the photo; the gradient is gone.
+  await alice.goto(`/chat/${conversationId}`);
+  await alice.page.locator('input[placeholder="Message"], textarea[placeholder="Message"]').first().waitFor({ state: 'visible', timeout: 60_000 });
+  const shown = await waitFor(async () => {
+    const srcs = await alice.page.locator('img').evaluateAll((els) => els.map((e) => e.getAttribute('src') ?? ''));
+    return srcs.some((src) => src.includes('/wallpapers/') || src.includes(path.split('/').pop())) ? true : null;
+  }, 20_000);
+  if (!shown) throw new Error('the photo wallpaper is not rendered behind the messages');
+
+  // The other person still sees their own background.
+  const bobSide = (await rpc(bob.session, 'get_conversations', { p_filter: 'inbox', p_limit: 30, p_before: null }) ?? []).find((c) => c.id === conversationId);
+  if (bobSide?.wallpaper) throw new Error('the wallpaper leaked to the other person');
+
+  await rpc(alice.session, 'set_conversation_settings', { p_conversation: conversationId, p_wallpaper: null, p_set_wallpaper: true });
+  return { storedAs: `img:${path}`, privateToOwner: true, renderedBehindMessages: true };
 }
 
 async function callScenario(alice, bob, conversationId) {
@@ -959,7 +1066,7 @@ try {
     for (const room of lobby?.mine ?? []) await rpc(actor.session, 'leave_game_room', { p_room: room.id }).catch(() => undefined);
   }
   let conversationId = null;
-  if (only.includes('chat') || only.includes('call') || only.includes('scroll')) {
+  if (only.includes('chat') || only.includes('call') || only.includes('scroll') || only.includes('archive')) {
     conversationId = await rpc(alice.session, 'start_direct_conversation', { p_user: bob.userId });
     log('conversation', conversationId);
     const active = await rpc(alice.session, 'get_active_call', { p_conversation: conversationId }).catch(() => null);
@@ -974,6 +1081,8 @@ try {
   if (only.includes('chat')) await scenario('End-to-end encrypted chat between two accounts', () => chatScenario(alice, bob, conversationId));
   if (only.includes('scroll')) await scenario('Chat history scrolls and loads older messages', () => chatScrollScenario(alice, bob, conversationId));
   if (only.includes('scroll')) await scenario('Inbox list scrolls', () => inboxScrollScenario(alice, bob));
+  if (only.includes('archive')) await scenario('Archived chats stay archived, like a proper messenger', () => archiveScenario(alice, bob, conversationId));
+  if (only.includes('archive')) await scenario('A photo from the library becomes the chat wallpaper', () => wallpaperScenario(alice, bob, conversationId));
   if (only.includes('call')) await scenario('Voice call rings, connects on both sides and ends cleanly', () => callScenario(alice, bob, conversationId));
   if (only.includes('live')) await scenario('LIVE: broadcast, comments, goal, gift ranking, Q&A, blocked words', () => liveScenario(alice, bob));
   const wants = (key) => only.includes(key) || only.includes('games');

@@ -88,6 +88,14 @@ in the browser must go through `useHydrated()` (`src/hooks/useHydrated.ts`); the
 (`src/components/ui/Ionicons.tsx`) does this because the icon font is not available during pre-rendering.
 `npm run qa:hydration -- /about /download` diffs the server HTML against the browser DOM when a React #418 shows up.
 
+**Chat background and the archive.** `conversation_members.wallpaper` holds either a preset id or
+`img:<path>` into the private `wallpapers` bucket, where each person can only read their own folder;
+`user_settings.chat_wallpaper` is the account-wide default a chat falls back to. A wallpaper is personal,
+never shared with the other side. Archiving follows the behaviour people know from WhatsApp: since 0019
+`touch_conversation` leaves an archived chat archived unless that member turned `keep_chats_archived` off,
+`get_archived_summary()` feeds the single Archived row at the top of the inbox, and push-dispatch skips
+message pushes for chats the recipient keeps archived.
+
 **LIVE.** `game-engine`-style separation also applies to broadcasts: `live_sessions` and everything around
 it (stage, battles, gifts, fan clubs, moderation in migration 0007; goals, Q&A, supporter ranking and host
 word filters in 0018) are written only through SECURITY DEFINER functions, with clients holding SELECT behind

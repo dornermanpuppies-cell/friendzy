@@ -247,12 +247,12 @@ order by id desc limit 5;` after `select public.request_test_notification();` �
 Rotate the VAPID pair with `node -e` (see scripts/qa/webpush-selftest.ts) → update the three secrets →
 `EXPO_PUBLIC_VAPID_PUBLIC_KEY` on Netlify → redeploy; browsers re-subscribe on their next visit.
 
-**Web Push library.** `push-dispatch` uses a vendored copy of `@negrel/webpush` (MIT) at
-`supabase/functions/_shared/webpush.vendored.js` (types in `webpush.vendored.d.ts`). It is vendored on purpose: a
-deploy made through the Supabase Management API cannot resolve `jsr:` imports at boot (v15 of the function failed with
-`BOOT_ERROR` until the library was inlined). Regenerate it with `npm run functions:vendor-webpush` (needs Deno) and
-re-run `VAPID_KEYS_FILE=… deno run -A scripts/qa/webpush-selftest.ts`, which verifies the VAPID signature and decrypts
-the aes128gcm body with an independent RFC 8291 implementation.
+**Web Push implementation.** `supabase/functions/_shared/webpush.ts` is Friendzy's own ~130-line
+implementation of RFC 8291 (payload encryption) and RFC 8292 (VAPID), written against WebCrypto with no
+dependencies. It replaced a vendored third-party library, which a Management API deploy could not boot and
+which made the function too large to review. `node scripts/qa/webpush-selftest.mjs` stands up a fake push
+service, sends a real message through it, verifies the VAPID signature and decrypts the body with a
+separate implementation of the same RFCs — 9 checks, no network and no keys needed.
 
 **Deploying `push-dispatch` and `game-engine`.** Both import shared files, so deploy either with the CLI
 (`supabase functions deploy …`, which bundles the folder) or, when deploying through the Management API / dashboard,

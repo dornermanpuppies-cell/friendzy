@@ -101,6 +101,10 @@ export type UserSettingsRow = {
   match_languages: string[];
   match_genders: string[];
   match_shared_interests: boolean;
+  /** Phase 19 — chat background and archiving behaviour. */
+  keep_chats_archived: boolean;
+  /** Preset id, or `img:<path>` in the private wallpapers bucket. */
+  chat_wallpaper: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -515,6 +519,8 @@ export type Database = {
       set_disappearing: { Args: { p_conversation: string; p_seconds: number }; Returns: undefined };
       mark_conversation_read: { Args: { p_conversation: string }; Returns: undefined };
       mark_delivered: { Args: { p_conversation_ids?: string[] | null }; Returns: undefined };
+      get_archived_summary: { Args: Record<string, never>; Returns: Json };
+      unarchive_all_chats: { Args: Record<string, never>; Returns: number };
       get_unread_total: { Args: Record<string, never>; Returns: number };
       get_conversations: { Args: { p_filter?: string; p_limit?: number; p_before?: string | null }; Returns: Json[] };
       get_conversation: { Args: { p_id: string }; Returns: Json };

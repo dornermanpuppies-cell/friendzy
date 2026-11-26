@@ -20,7 +20,20 @@ export const WALLPAPERS: ChatWallpaper[] = [
   { id: 'cream', label: 'Cream', colors: ['#FFF6E9', '#FFE8D1'], bubble: palette.white, textOnBubble: palette.ink },
 ];
 
+/** Bubble styling used on top of a photo: a dark scrim keeps text readable on any picture. */
+export const PHOTO_WALLPAPER: ChatWallpaper = {
+  id: 'photo',
+  label: 'Your photo',
+  colors: [palette.night, palette.night],
+  bubble: 'rgba(16,14,34,0.72)',
+  textOnBubble: palette.white,
+};
+
+/** How much the photo is darkened so message text stays readable. */
+export const PHOTO_SCRIM = 'rgba(9,8,23,0.45)';
+
 export function wallpaperFor(id: string | null | undefined): ChatWallpaper {
+  if (typeof id === 'string' && id.startsWith('img:')) return PHOTO_WALLPAPER;
   return WALLPAPERS.find((w) => w.id === id) ?? WALLPAPERS[0];
 }
 

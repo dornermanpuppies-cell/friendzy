@@ -111,9 +111,12 @@ begin
   perform tests.assert((select count(*) from public.get_conversations('archived')) = 1, 'archived filter');
   perform tests.assert((select count(*) from public.get_conversations('inbox') j where (j->>'id')::uuid = v_dm) = 0, 'archived hidden from inbox');
   perform tests.as_user(bob);
-  perform tests.send_plain(v_dm, 'text', 'unarchive me');
+  perform tests.send_plain(v_dm, 'text', 'still archived please');
   perform tests.as_user(alice);
-  perform tests.assert((select count(*) from public.get_conversations('inbox') j where (j->>'id')::uuid = v_dm) = 1, 'new message un-archives');
+  -- Since 0019 an archived chat stays archived when a message arrives, unless the member turned
+  -- "keep chats archived" off. The switch itself is covered in 0019_wallpapers_archive.test.sql.
+  perform tests.assert((select count(*) from public.get_conversations('inbox') j where (j->>'id')::uuid = v_dm) = 0, 'a new message leaves an archived chat archived');
+  perform tests.assert((select count(*) from public.get_conversations('archived') j where (j->>'id')::uuid = v_dm) = 1, 'the chat is still in the archive');
 
   -- disappearing messages
   perform public.set_disappearing(v_dm, 86400);

@@ -151,6 +151,28 @@ export async function setConversationSettings(id: string, patch: ConversationSet
   return data as unknown as ConversationSummary;
 }
 
+export interface ArchivedSummary {
+  chats: number;
+  unread_chats: number;
+  unread_messages: number;
+  names: string[];
+  keep_archived: boolean;
+}
+
+/** Feeds the single "Archived" row at the top of the inbox. */
+export async function getArchivedSummary(): Promise<ArchivedSummary> {
+  const { data, error } = await supabase.rpc('get_archived_summary');
+  if (error) throw error;
+  return data as unknown as ArchivedSummary;
+}
+
+/** Empties the archive and returns how many chats moved back. */
+export async function unarchiveAllChats(): Promise<number> {
+  const { data, error } = await supabase.rpc('unarchive_all_chats');
+  if (error) throw error;
+  return (data ?? 0) as number;
+}
+
 export async function clearConversation(id: string): Promise<void> {
   const { error } = await supabase.rpc('clear_conversation', { p_conversation: id });
   if (error) throw error;

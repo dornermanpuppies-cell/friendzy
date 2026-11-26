@@ -1,5 +1,6 @@
 import { Ionicons } from '@/components/ui/Ionicons';
 import * as Clipboard from 'expo-clipboard';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -20,7 +21,7 @@ import { EncryptionNotice } from '@/features/chat/EncryptionNotice';
 import { ForwardSheet } from '@/features/chat/ForwardSheet';
 import { MessageActionsSheet } from '@/features/chat/MessageActionsSheet';
 import { MessageBubble } from '@/features/chat/MessageBubble';
-import { isLightWallpaper, wallpaperFor } from '@/features/chat/wallpapers';
+import { PHOTO_SCRIM, isLightWallpaper, wallpaperFor } from '@/features/chat/wallpapers';
 import { confirmAction } from '@/features/feed/usePostActions';
 import { ProfileRow } from '@/features/profile/ProfileRow';
 import { ReportSheet } from '@/features/profile/ReportSheet';
@@ -29,6 +30,7 @@ import { useEncryptionStatus } from '@/hooks/useE2ee';
 import { startCall } from '@/services/calls';
 import { deleteMessage, editMessage, fetchConversation, getMessageInfo, markConversationRead, pinMessage, reactToMessage, respondMessageRequest, starMessage, subscribeToConversation } from '@/services/messaging';
 import { getPresence, setPresenceActivity } from '@/services/presence';
+import { getWallpaperUrl, isImageWallpaper } from '@/services/wallpapers';
 import { blockUser } from '@/services/safety';
 import { useAuth } from '@/store/authStore';
 import { useBadgeStore } from '@/store/badgeStore';
@@ -55,7 +57,7 @@ function dayLabel(iso: string): string {
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const conversationId = String(id);
-  const { user, profile } = useAuth();
+  const { user, profile, settings } = useAuth();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { isDesktop } = useBreakpoint();
@@ -169,8 +171,26 @@ export default function ChatScreen() {
     }, []),
   );
 
-  const wallpaper = wallpaperFor(conversation?.wallpaper ?? profile?.id ? conversation?.wallpaper : null);
+  // This chat's own choice wins; otherwise the account-wide default from Settings → Chats.
+  const wallpaperValue = conversation?.wallpaper ?? settings?.chat_wallpaper ?? null;
+  const wallpaper = wallpaperFor(wallpaperValue);
   const light = isLightWallpaper(wallpaper);
+  const [wallpaperPhoto, setWallpaperPhoto] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!isImageWallpaper(wallpaperValue)) {
+      // Deferred: clearing synchronously inside the effect would re-render during the same commit.
+      const id = setTimeout(() => !cancelled && setWallpaperPhoto(null), 0);
+      return () => {
+        cancelled = true;
+        clearTimeout(id);
+      };
+    }
+    void getWallpaperUrl(wallpaperValue as string).then((url) => !cancelled && setWallpaperPhoto(url));
+    return () => {
+      cancelled = true;
+    };
+  }, [wallpaperValue]);
   const isGroup = conversation?.kind === 'group';
   const canModerate = Boolean(conversation && (conversation.my_role === 'owner' || conversation.my_role === 'admin'));
   const typingNames = (typing ?? []).filter((t) => t.until > Date.now() && t.user_id !== user?.id).map((t) => t.name.split(' ')[0]);
@@ -276,7 +296,14 @@ export default function ChatScreen() {
   return (
     <View style={styles.root}>
       <StatusBar style={light ? 'dark' : 'light'} />
-      <LinearGradient colors={wallpaper.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+      {wallpaperPhoto ? (
+        <>
+          <Image source={{ uri: wallpaperPhoto }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: PHOTO_SCRIM }]} />
+        </>
+      ) : (
+        <LinearGradient colors={wallpaper.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+      )}
       <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* Header */}
         <View style={[styles.header, { paddingTop: isDesktop ? spacing.sm : insets.top, backgroundColor: light ? 'rgba(255,255,255,0.85)' : 'rgba(9,8,23,0.85)' }]}>

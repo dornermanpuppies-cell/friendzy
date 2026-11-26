@@ -20,7 +20,8 @@ import { useToast } from '@/components/ui/Toast';
 import { ConversationRow } from '@/features/chat/ConversationRow';
 import { confirmAction } from '@/features/feed/usePostActions';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { clearConversation, leaveConversation, markConversationRead, respondMessageRequest, setConversationSettings } from '@/services/messaging';
+import { clearConversation, getArchivedSummary, leaveConversation, markConversationRead, respondMessageRequest, setConversationSettings } from '@/services/messaging';
+import { useAsync } from '@/hooks/useAsync';
 import { useBadgeStore } from '@/store/badgeStore';
 import { useChatStore } from '@/store/chatStore';
 import { ThemeScope, useTheme } from '@/theme/ThemeProvider';
@@ -33,7 +34,6 @@ const FILTERS: { id: InboxFilter; label: string; icon: keyof typeof Ionicons.gly
   { id: 'unread', label: 'Unread', icon: 'mail-unread-outline' },
   { id: 'groups', label: 'Groups', icon: 'people-outline' },
   { id: 'requests', label: 'Requests', icon: 'person-add-outline' },
-  { id: 'archived', label: 'Archived', icon: 'archive-outline' },
 ];
 
 export default function InboxScreen() {
@@ -48,12 +48,14 @@ export default function InboxScreen() {
     useShallow((s) => ({ list: s.lists[filter], conversations: s.conversations, load: s.loadConversations, patch: s.patchConversation, remove: s.removeConversation })),
   );
   const requestsList = useChatStore((s) => s.lists.requests);
+  const archived = useAsync(() => getArchivedSummary(), [], { enabled: true });
   const refreshInbox = useBadgeStore((s) => s.refreshInbox);
 
   useFocusEffect(
     useCallback(() => {
       void load(filter);
       if (filter !== 'requests') void load('requests');
+      void archived.reload();
       void refreshInbox();
     }, [filter, load, refreshInbox]),
   );
@@ -71,7 +73,7 @@ export default function InboxScreen() {
     try {
       await fn();
       if (success) toast.success(success);
-      await Promise.all([load(filter), refreshInbox()]);
+      await Promise.all([load(filter), refreshInbox(), archived.reload()]);
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -117,6 +119,27 @@ export default function InboxScreen() {
           <FlatList
             data={items}
             keyExtractor={(c) => c.id}
+            ListHeaderComponent={
+              filter === 'inbox' && (archived.data?.chats ?? 0) > 0 ? (
+                <Pressable onPress={() => router.navigate('/chat/archived' as never)} style={styles.archivedRow} accessibilityLabel={`Archived, ${archived.data?.chats} chats`}>
+                  <Ionicons name="archive-outline" size={20} color={colors.textMuted} />
+                  <Text variant="bodySemibold" style={{ flex: 1, marginLeft: spacing.md }}>
+                    Archived
+                  </Text>
+                  {(archived.data?.unread_chats ?? 0) > 0 ? (
+                    <View style={styles.archivedBadge}>
+                      <Text variant="caption" color={palette.white}>
+                        {archived.data?.unread_chats}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text variant="small" color="textMuted">
+                      {archived.data?.chats}
+                    </Text>
+                  )}
+                </Pressable>
+              ) : undefined
+            }
             contentContainerStyle={[styles.list, items.length === 0 && { flex: 1 }]}
             refreshing={list.loading}
             onRefresh={() => void load(filter)}
@@ -180,6 +203,8 @@ const styles = StyleSheet.create({
   top: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, width: '100%', maxWidth: layout.maxContentWidth, alignSelf: 'center' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingVertical: spacing.md },
   list: { width: '100%', maxWidth: layout.maxContentWidth, alignSelf: 'center', paddingBottom: 96 },
+  archivedRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  archivedBadge: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: palette.purple, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   fab: { position: 'absolute', right: spacing.xl, bottom: spacing['2xl'], borderRadius: radius.full },
   fabInner: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
 });

@@ -17,8 +17,7 @@
 // Deploy with `supabase functions deploy push-dispatch --no-verify-jwt`.
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-// @ts-types="../_shared/webpush.vendored.d.ts"
-import { ApplicationServer, importVapidKeys, PushMessageError, Urgency } from '../_shared/webpush.vendored.js';
+import { createPushSender, PushError, type PushSender } from '../_shared/webpush.ts';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -111,7 +110,7 @@ async function expoTokensFor(admin: SupabaseClient, userIds: string[]): Promise<
 
 async function sendExpo(admin: SupabaseClient, items: Outgoing[]): Promise<{ sent: number; errors: Record<string, number> }> {
   const tokens = await expoTokensFor(admin, [...new Set(items.map((i) => i.userId))]);
-  if (tokens.length === 0) return 0;
+  if (tokens.length === 0) return { sent: 0, errors: {} };
   const messages = items.flatMap((item) =>
     tokens.filter((t) => t.user_id === item.userId).map((t) => ({
       to: t.token,
@@ -156,17 +155,7 @@ async function sendExpo(admin: SupabaseClient, items: Outgoing[]): Promise<{ sen
 // ---------------------------------------------------------------------------
 // Web Push (website / installed web app)
 // ---------------------------------------------------------------------------
-let appServer: ApplicationServer | null | undefined;
-
-const b64url = {
-  decode(value: string): Uint8Array {
-    const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (value.length % 4)) % 4);
-    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  },
-  encode(bytes: Uint8Array): string {
-    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  },
-};
+let sender: PushSender | null | undefined;
 
 /**
  * VAPID keys from the function secrets. Two accepted shapes:
@@ -174,38 +163,28 @@ const b64url = {
  *   • VAPID_PRIVATE_KEY = base64url private scalar (d) + VAPID_PUBLIC_KEY = base64url 65-byte public point
  *     (the same value the website ships as its applicationServerKey).
  */
-async function webPushServer(): Promise<ApplicationServer | null> {
-  if (appServer !== undefined) return appServer;
+async function webPushSender(): Promise<PushSender | null> {
+  if (sender !== undefined) return sender;
   const privateRaw = Deno.env.get('VAPID_PRIVATE_KEY')?.trim();
   const publicRaw = Deno.env.get('VAPID_PUBLIC_KEY')?.trim();
   const subject = Deno.env.get('VAPID_SUBJECT')?.trim() || 'https://friendzychat.netlify.app';
-  if (!privateRaw) {
-    appServer = null;
+  if (!privateRaw || !publicRaw) {
+    sender = null;
     return null;
   }
   try {
-    let privateKey: JsonWebKey;
-    if (privateRaw.startsWith('{')) {
-      privateKey = JSON.parse(privateRaw) as JsonWebKey;
-    } else {
-      if (!publicRaw) throw new Error('VAPID_PUBLIC_KEY is required when VAPID_PRIVATE_KEY is a raw scalar');
-      const point = b64url.decode(publicRaw);
-      if (point.length !== 65 || point[0] !== 4) throw new Error('VAPID_PUBLIC_KEY must be an uncompressed P-256 point');
-      privateKey = { kty: 'EC', crv: 'P-256', d: privateRaw, x: b64url.encode(point.slice(1, 33)), y: b64url.encode(point.slice(33, 65)), ext: true, key_ops: ['sign'] };
-    }
-    const publicKey: JsonWebKey = { kty: 'EC', crv: 'P-256', x: privateKey.x, y: privateKey.y, ext: true };
-    const vapidKeys = await importVapidKeys({ publicKey, privateKey }, { extractable: false });
-    appServer = await ApplicationServer.new({ contactInformation: subject, vapidKeys });
+    const privateKey = privateRaw.startsWith('{') ? (JSON.parse(privateRaw) as JsonWebKey) : privateRaw;
+    sender = await createPushSender({ publicKey: publicRaw, privateKey, subject });
   } catch (error) {
     console.error('[push-dispatch] VAPID keys are invalid', error);
-    appServer = null;
+    sender = null;
   }
-  return appServer;
+  return sender;
 }
 
 async function sendWeb(admin: SupabaseClient, items: Outgoing[]): Promise<number> {
-  const server = await webPushServer();
-  if (!server) return 0;
+  const push = await webPushSender();
+  if (!push) return 0;
   const userIds = [...new Set(items.map((i) => i.userId))];
   const { data: subs } = await admin.from('web_push_subscriptions').select('id, user_id, endpoint, p256dh, auth').in('user_id', userIds);
   if (!subs || subs.length === 0) return 0;
@@ -214,20 +193,25 @@ async function sendWeb(admin: SupabaseClient, items: Outgoing[]): Promise<number
   const failed: string[] = [];
   await Promise.all(
     items.flatMap((item) =>
-      subs.filter((s) => s.user_id === item.userId).map(async (s) => {
-        try {
-          const subscriber = server.subscribe({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } });
-          const payload = { title: item.title, body: item.body, url: item.url, type: item.type, tag: item.tag ?? item.type, renotify: item.type === 'incoming_call', data: item.data ?? {} };
-          await subscriber.pushTextMessage(JSON.stringify(payload), { urgency: item.priority === 'high' ? Urgency.High : Urgency.Normal, ttl: item.ttlSeconds, topic: item.tag?.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || undefined });
-          sent += 1;
-        } catch (error) {
-          if (error instanceof PushMessageError && (error.response.status === 404 || error.response.status === 410)) gone.push(s.id);
-          else {
-            failed.push(s.id);
-            console.warn('[push-dispatch] web push failed', s.endpoint.slice(0, 48), error instanceof Error ? error.message : error);
+      subs
+        .filter((s) => s.user_id === item.userId)
+        .map(async (s) => {
+          try {
+            const payload = { title: item.title, body: item.body, url: item.url, type: item.type, tag: item.tag ?? item.type, renotify: item.type === 'incoming_call', data: item.data ?? {} };
+            await push.send({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(payload), {
+              urgency: item.priority === 'high' ? 'high' : 'normal',
+              ttl: item.ttlSeconds,
+              topic: item.tag?.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) || undefined,
+            });
+            sent += 1;
+          } catch (error) {
+            if (error instanceof PushError && error.isGone) gone.push(s.id);
+            else {
+              failed.push(s.id);
+              console.warn('[push-dispatch] web push failed', s.endpoint.slice(0, 48), error instanceof Error ? error.message : error);
+            }
           }
-        }
-      }),
+        }),
     ),
   );
   if (gone.length) await admin.from('web_push_subscriptions').delete().in('id', gone);
@@ -293,9 +277,19 @@ Deno.serve(async (req) => {
     const m = body.record as MessageRecord;
     if (!m.sender_id || m.kind === 'system') return json({ ok: true, ignored: true });
     // Active members get "new message"; a pending member is being asked to accept a message request.
-    const { data: members } = await admin.from('conversation_members').select('user_id, notifications, muted_until, state').eq('conversation_id', m.conversation_id).neq('user_id', m.sender_id).in('state', ['active', 'pending']);
+    const { data: members } = await admin.from('conversation_members').select('user_id, notifications, muted_until, state, is_archived').eq('conversation_id', m.conversation_id).neq('user_id', m.sender_id).in('state', ['active', 'pending']);
     const now = Date.now();
-    const candidates = (members ?? []).filter((x) => x.notifications !== false && (!x.muted_until || Date.parse(x.muted_until) < now));
+    // An archived chat stays silent while its owner keeps chats archived — the same rule the inbox uses.
+    const archivedIds = (members ?? []).filter((x) => x.is_archived).map((x) => x.user_id);
+    const keepArchived = new Set<string>();
+    if (archivedIds.length > 0) {
+      const { data: settings } = await admin.from('user_settings').select('user_id, keep_chats_archived').in('user_id', archivedIds);
+      for (const id of archivedIds) {
+        const row = (settings ?? []).find((s) => s.user_id === id);
+        if (row?.keep_chats_archived !== false) keepArchived.add(id);
+      }
+    }
+    const candidates = (members ?? []).filter((x) => x.notifications !== false && (!x.muted_until || Date.parse(x.muted_until) < now) && !keepArchived.has(x.user_id));
     const allowed = await allowedRecipients(admin, candidates.map((x) => x.user_id), 'messages');
     if (allowed.length === 0) return json({ ok: true, skipped: 'no recipients' });
     const [{ data: sender }, { data: conversation }] = await Promise.all([

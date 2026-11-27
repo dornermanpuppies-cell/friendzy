@@ -1,5 +1,5 @@
 import { type PropsWithChildren, type ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/Button';
@@ -29,7 +29,7 @@ export function OnboardingShell({ step, title, subtitle, primaryLabel = 'Continu
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.root}>
+      <KeyboardAvoidingView behavior="padding" style={styles.root}>
         <View style={[styles.column, isDesktop && styles.columnDesktop]}>
           <View style={styles.header}>
             <ProgressDots total={ONBOARDING_TOTAL} current={step} style={{ flex: 1 }} />

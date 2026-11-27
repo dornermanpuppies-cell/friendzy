@@ -16,6 +16,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { fontFamily, palette, radius, spacing } from '@/theme/tokens';
 import type { Message, MessageMetadata, Sticker } from '@/types/messaging';
 import { AppError, getErrorMessage } from '@/utils/errors';
+import { useKeyboardInset } from '@/hooks/useKeyboardInset';
 
 import { StickerPicker } from './StickerPicker';
 import { VoiceRecorder, type VoiceNoteResult } from './VoiceRecorder';
@@ -40,6 +41,10 @@ export function ChatComposer({ replyTo, editing, onCancelContext, onSendText, on
   const { colors } = useTheme();
   const toast = useToast();
   const insets = useSafeAreaInsets();
+  // While the keyboard is open the navigation-bar strip is behind it, so reserving space for it
+  // would leave a dead gap above the keys.
+  const keyboardInset = useKeyboardInset();
+  const bottomSpace = (keyboardInset > 0 ? 0 : insets.bottom) + spacing.sm;
   const [text, setText] = useState('');
   const [attachOpen, setAttachOpen] = useState(false);
   const [stickersOpen, setStickersOpen] = useState(false);
@@ -154,7 +159,7 @@ export function ChatComposer({ replyTo, editing, onCancelContext, onSendText, on
 
   if (disabled) {
     return (
-      <View style={[styles.disabled, { backgroundColor: barBg, paddingBottom: insets.bottom + spacing.sm }]}>
+      <View style={[styles.disabled, { backgroundColor: barBg, paddingBottom: bottomSpace }]}>
         <Ionicons name="lock-closed-outline" size={16} color={iconColor} />
         <Text variant="small" style={{ color: iconColor, marginLeft: spacing.sm, textAlign: 'center', flex: 1 }}>
           {disabledReason ?? 'You cannot send messages in this conversation.'}
@@ -164,7 +169,7 @@ export function ChatComposer({ replyTo, editing, onCancelContext, onSendText, on
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: barBg, paddingBottom: insets.bottom + spacing.sm }]}>
+    <View style={[styles.container, { backgroundColor: barBg, paddingBottom: bottomSpace }]}>
       {replyTo || editing ? (
         <View style={[styles.context, { backgroundColor: fieldBg, borderLeftColor: palette.purpleSoft }]}>
           <View style={{ flex: 1 }}>

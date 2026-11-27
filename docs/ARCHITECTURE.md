@@ -88,6 +88,14 @@ in the browser must go through `useHydrated()` (`src/hooks/useHydrated.ts`); the
 (`src/components/ui/Ionicons.tsx`) does this because the icon font is not available during pre-rendering.
 `npm run qa:hydration -- /about /download` diffs the server HTML against the browser DOM when a React #418 shows up.
 
+**Keyboard on phones.** Android apps are edge-to-edge from Expo SDK 54 onwards, so the window no
+longer shrinks when the keyboard opens and `behavior={Platform.OS === 'ios' ? 'padding' : undefined}`
+became a no-op there. Every KeyboardAvoidingView now passes `behavior="padding"` on both platforms,
+the shared `Screen` keeps its footer inside the avoider so submit bars are not left underneath, and
+surfaces that are positioned absolutely (the live chat box) read the height from `useKeyboardInset()`
+instead. On the web the app box is resized to `visualViewport` by the bootstrap in `src/app/+html.tsx`.
+`src/components/ui/__tests__/keyboardHandling.test.ts` fails the build if the inert pattern returns.
+
 **Chat background and the archive.** `conversation_members.wallpaper` holds either a preset id or
 `img:<path>` into the private `wallpapers` bucket, where each person can only read their own folder;
 `user_settings.chat_wallpaper` is the account-wide default a chat falls back to. A wallpaper is personal,
@@ -95,6 +103,12 @@ never shared with the other side. Archiving follows the behaviour people know fr
 `touch_conversation` leaves an archived chat archived unless that member turned `keep_chats_archived` off,
 `get_archived_summary()` feeds the single Archived row at the top of the inbox, and push-dispatch skips
 message pushes for chats the recipient keeps archived.
+
+**Broadcast writes avoid the heartbeat.** `start_live` and `end_live` use one guarded
+`UPDATE … RETURNING` rather than `SELECT … FOR UPDATE`, because the same row is written by every
+heartbeat and a start could otherwise queue past the statement timeout (migration 0022). Heartbeats
+set a short `lock_timeout` and drop a beat rather than wait, and `cleanup_lives` also clears
+broadcasts abandoned in `preparing`, which otherwise left the host unable to open another one.
 
 **LIVE.** `game-engine`-style separation also applies to broadcasts: `live_sessions` and everything around
 it (stage, battles, gifts, fan clubs, moderation in migration 0007; goals, Q&A, supporter ranking and host

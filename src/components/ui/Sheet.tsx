@@ -1,6 +1,6 @@
 import { Ionicons } from '@/components/ui/Ionicons';
 import { type PropsWithChildren, type ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/ui/Text';
@@ -34,7 +34,7 @@ export function Sheet({ visible, onClose, title, subtitle, footer, children, max
           onPress={dismissable ? onClose : undefined}
           style={[StyleSheet.absoluteFill, { backgroundColor: colors.overlay }]}
         />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={isDesktop ? undefined : styles.sheetHost} pointerEvents="box-none">
+        <KeyboardAvoidingView behavior="padding" style={isDesktop ? undefined : styles.sheetHost} pointerEvents="box-none">
           <View
             style={[
               styles.panel,

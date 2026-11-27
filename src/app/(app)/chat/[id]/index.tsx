@@ -304,7 +304,9 @@ export default function ChatScreen() {
       ) : (
         <LinearGradient colors={wallpaper.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
       )}
-      <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {/* `padding` on both platforms: since Expo SDK 54 Android is edge-to-edge and the window no
+          longer shrinks for the keyboard, so a view without a behavior keeps the composer underneath it. */}
+      <KeyboardAvoidingView style={styles.root} behavior="padding">
         {/* Header */}
         <View style={[styles.header, { paddingTop: isDesktop ? spacing.sm : insets.top, backgroundColor: light ? 'rgba(255,255,255,0.85)' : 'rgba(9,8,23,0.85)' }]}>
           {selection ? (
@@ -455,6 +457,7 @@ export default function ChatScreen() {
             contentContainerStyle={[styles.listContent, rows.length === 0 && { flex: 1, justifyContent: 'center', transform: [{ scaleY: -1 }] }]}
             onScrollToIndexFailed={() => undefined}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             removeClippedSubviews={false}
           />
         )}

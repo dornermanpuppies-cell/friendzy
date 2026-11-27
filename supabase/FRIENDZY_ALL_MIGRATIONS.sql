@@ -11593,3 +11593,238 @@ begin
   return public.live_json((select l from public.live_sessions l where l.id = p_id), auth.uid());
 end $$;
 
+
+-- ########## 20261125000021_device_limit_recovery.sql ##########
+
+-- ============================================================================
+-- 0021 — A long-unused device must not lock you out of your own chats
+--
+-- Encrypted chat allows 10 devices per account. A new device id is minted every time someone
+-- installs the app again, uses another browser, or clears site data — so the tenth slot fills up
+-- long before anyone owns ten phones. Once full, register_e2ee_device() refused outright and the
+-- chat screen had no composer at all: no way to type, and no way out from inside the conversation.
+--
+-- Registration now retires devices that have not been seen for 45 days to make room, and tells the
+-- owner it happened. If every slot belongs to a device in current use, the refusal stands, which is
+-- the case where asking the person to choose is the right answer.
+-- ============================================================================
+
+/** Retires the caller's devices that have gone unused for the given number of days. Returns how many. */
+create or replace function public.prune_stale_e2ee_devices(p_user uuid, p_days integer default 45)
+returns integer language plpgsql security definer set search_path = public as $$
+declare v_count integer;
+begin
+  update public.e2ee_devices
+     set revoked_at = now()
+   where user_id = p_user
+     and revoked_at is null
+     and last_seen_at < now() - make_interval(days => greatest(7, coalesce(p_days, 45)));
+  get diagnostics v_count = row_count;
+  return v_count;
+end $$;
+
+/**
+ * Replaces 0015. Same validation and the same 10-device ceiling; the only change is that a full
+ * account first drops the devices nobody has used in 45 days instead of failing immediately.
+ */
+create or replace function public.register_e2ee_device(p_device_id text, p_platform text, p_identity_key text, p_signing_key text, p_name text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_me uuid := auth.uid(); v_row public.e2ee_devices; v_existing public.e2ee_devices; v_active integer; v_pruned integer := 0;
+begin
+  if v_me is null then raise exception 'NOT_AUTHENTICATED' using errcode = '42501'; end if;
+  if p_device_id !~ '^[A-Za-z0-9_-]{16,64}$' or p_platform not in ('android', 'ios', 'web')
+     or coalesce(p_identity_key, '') !~ '^[A-Za-z0-9+/]{43}=$' or coalesce(p_signing_key, '') !~ '^[A-Za-z0-9+/]{43}=$' then
+    raise exception 'INVALID_DEVICE' using errcode = '23514';
+  end if;
+  select * into v_existing from public.e2ee_devices where device_id = p_device_id;
+  if v_existing.id is not null and v_existing.user_id <> v_me then raise exception 'DEVICE_ID_TAKEN' using errcode = '23505'; end if;
+  if v_existing.id is not null and v_existing.revoked_at is not null then
+    raise exception 'DEVICE_REVOKED' using errcode = '42501', hint = 'This device was removed from your account. A new encryption identity will be created.';
+  end if;
+
+  if v_existing.id is null then
+    select count(*) into v_active from public.e2ee_devices where user_id = v_me and revoked_at is null;
+    if v_active >= 10 then
+      -- Make room by retiring what has not been used in a long time, then look again.
+      v_pruned := public.prune_stale_e2ee_devices(v_me, 45);
+      select count(*) into v_active from public.e2ee_devices where user_id = v_me and revoked_at is null;
+      if v_active >= 10 then
+        raise exception 'DEVICE_LIMIT' using errcode = 'P0001',
+          hint = 'Encrypted chat works on up to 10 devices and all of yours are in use. Open Settings → End-to-end encryption and remove one.';
+      end if;
+      -- Removing a device is a security-relevant change, so say so.
+      insert into public.notifications (user_id, type, data)
+      values (v_me, 'security_alert', jsonb_build_object(
+        'message', case when v_pruned = 1 then 'An unused device was removed from encrypted chat to make room for this one.'
+                        else v_pruned || ' unused devices were removed from encrypted chat to make room for this one.' end,
+        'pruned', v_pruned));
+    end if;
+    insert into public.e2ee_devices (user_id, device_id, platform, name, identity_key, signing_key)
+    values (v_me, p_device_id, p_platform, nullif(left(p_name, 80), ''), p_identity_key, p_signing_key)
+    returning * into v_row;
+  else
+    update public.e2ee_devices
+       set platform = p_platform,
+           name = coalesce(nullif(left(p_name, 80), ''), name),
+           -- New key material under a known id counts as a new identity (peers see a key change).
+           created_at = case when identity_key = p_identity_key and signing_key = p_signing_key then created_at else now() end,
+           identity_key = p_identity_key,
+           signing_key = p_signing_key,
+           last_seen_at = now()
+     where id = v_existing.id
+    returning * into v_row;
+  end if;
+  return public.e2ee_device_json(v_row, true);
+end $$;
+
+-- Internal helper: only the registration path and the server may call it. PostgreSQL grants EXECUTE
+-- to PUBLIC on a new function, so that has to go first or every signed-in client could call it.
+revoke all on function public.prune_stale_e2ee_devices(uuid, integer) from public;
+revoke all on function public.prune_stale_e2ee_devices(uuid, integer) from anon, authenticated;
+grant execute on function public.prune_stale_e2ee_devices(uuid, integer) to service_role;
+
+
+-- ########## 20261125000022_live_start_reliability.sql ##########
+
+-- ============================================================================
+-- 0022 — Going live must not lose a race with its own heartbeat
+--
+-- Symptom seen in the browser harness: tapping "Start LIVE" returned
+--   57014 canceling statement due to statement timeout
+-- and the broadcast sat in `preparing` for ever.
+--
+-- Cause: start_live() opened with `select … for update` on the live_sessions row, and that row is
+-- written constantly by live_heartbeat() (host_last_seen_at, and viewers_count through
+-- recount_live_viewers). While a beat held the row, the start waited, and with beats arriving from
+-- the host and every viewer the queue outlived the statement timeout.
+--
+-- Fixes here:
+--   • start_live / end_live use one guarded UPDATE … RETURNING instead of taking a lock first.
+--     Same rules, same errors, no waiting.
+--   • live_heartbeat gives up rather than queueing: a missed beat costs nothing, a stuck one
+--     blocks the broadcast.
+--   • cleanup_lives also clears broadcasts abandoned in `preparing`. Without that, a failed start
+--     left the host unable to open another one at all, because create_live() refuses while a
+--     session is still open.
+-- ============================================================================
+
+/** Replaces 0007: no row lock, so a heartbeat in flight cannot delay going live. */
+create or replace function public.start_live(p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v public.live_sessions;
+begin
+  if auth.uid() is null then raise exception 'NOT_AUTHENTICATED' using errcode = '42501'; end if;
+
+  update public.live_sessions
+     set status = 'live', started_at = clock_timestamp(), host_last_seen_at = clock_timestamp(), updated_at = now()
+   where id = p_id and host_id = auth.uid() and status in ('scheduled', 'preparing')
+  returning * into v;
+
+  if v.id is null then
+    -- Nothing changed: say why, keeping the answers 0007 gave.
+    select * into v from public.live_sessions where id = p_id;
+    if v.id is null or v.host_id <> auth.uid() then raise exception 'FORBIDDEN' using errcode = '42501'; end if;
+    if v.status = 'live' then return public.live_json(v, auth.uid()); end if;
+    raise exception 'LIVE_OVER' using errcode = 'P0001', hint = 'This broadcast has already ended.';
+  end if;
+
+  -- Persistent moderators join automatically.
+  insert into public.live_participants (live_id, user_id, role, state)
+  select p_id, m.user_id, 'moderator', 'left' from public.host_moderators m where m.host_id = v.host_id
+  on conflict do nothing;
+
+  -- Notify followers and anyone who set a reminder.
+  insert into public.notifications (user_id, actor_id, type, entity_type, entity_id, data)
+  select u.user_id, v.host_id, 'live_started', 'live', p_id::text, jsonb_build_object('title', v.title)
+  from (select f.follower_id as user_id from public.follows f where f.following_id = v.host_id
+        union select r.user_id from public.live_reminders r where r.live_id = p_id) u
+  join public.notification_preferences np on np.user_id = u.user_id and np.live
+  where not public.is_blocked_either(u.user_id, v.host_id) and public.can_view_post_of(v.host_id, v.visibility, u.user_id);
+
+  perform public.insert_live_system(p_id, 'went live', 'system', '{}'::jsonb, v.host_id);
+  return public.live_json((select l from public.live_sessions l where l.id = p_id), auth.uid());
+end $$;
+
+/** Replaces 0007: same guarded-update treatment, so ending cannot queue behind a beat either. */
+create or replace function public.end_live(p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v public.live_sessions;
+begin
+  update public.live_sessions
+     set status = case when status = 'scheduled' then 'cancelled' else 'ended' end::public.live_status,
+         ended_at = clock_timestamp(), viewers_count = 0, updated_at = now()
+   where id = p_id and status not in ('ended', 'cancelled') and (host_id = auth.uid() or public.is_admin())
+  returning * into v;
+
+  if v.id is null then
+    select * into v from public.live_sessions where id = p_id;
+    if v.id is null or (v.host_id <> auth.uid() and not public.is_admin()) then raise exception 'FORBIDDEN' using errcode = '42501'; end if;
+    return public.live_json(v, auth.uid());
+  end if;
+
+  update public.live_participants set state = 'left', left_at = clock_timestamp() where live_id = p_id and state <> 'removed';
+  update public.live_battles
+     set status = 'finished', finished_at = clock_timestamp(),
+         winner_id = case when host_score > opponent_score then host_id when opponent_score > host_score then opponent_id else null end
+   where live_id = p_id and status = 'active';
+  return public.live_json((select l from public.live_sessions l where l.id = p_id), auth.uid());
+end $$;
+
+/**
+ * Replaces 0007: a beat that cannot get the row immediately is dropped. Heartbeats exist to say
+ * "still here" and the next one is seconds away, so waiting for a lock only spreads the delay.
+ */
+create or replace function public.live_heartbeat(p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  begin
+    set local lock_timeout = '800ms';
+    if public.is_live_host(p_id) then
+      update public.live_sessions set host_last_seen_at = clock_timestamp() where id = p_id;
+    else
+      update public.live_participants set last_seen_at = clock_timestamp()
+       where live_id = p_id and user_id = auth.uid() and state in ('watching', 'requested', 'invited', 'on_stage');
+    end if;
+    perform public.recount_live_viewers(p_id);
+  exception when lock_not_available then
+    -- Someone else is writing the broadcast right now; skip this beat.
+    null;
+  end;
+  return jsonb_build_object(
+    'viewers_count', (select viewers_count from public.live_sessions where id = p_id),
+    'status', (select status from public.live_sessions where id = p_id));
+end $$;
+
+/**
+ * Replaces 0007: also clears broadcasts left in `preparing`. create_live() refuses to open a second
+ * session while one is still active, so a start that failed used to lock the host out permanently.
+ */
+create or replace function public.cleanup_lives()
+returns integer language plpgsql security definer set search_path = public as $$
+declare r record; v_n integer := 0;
+begin
+  -- Running broadcasts whose host stopped checking in.
+  for r in select id from public.live_sessions
+            where status = 'live' and coalesce(host_last_seen_at, started_at) < clock_timestamp() - interval '5 minutes' loop
+    update public.live_sessions set status = 'ended', ended_at = clock_timestamp(), viewers_count = 0 where id = r.id;
+    update public.live_participants set state = 'left', left_at = clock_timestamp() where live_id = r.id and state <> 'removed';
+    v_n := v_n + 1;
+  end loop;
+
+  -- Never-started previews: the host closed the app, or the start failed.
+  for r in select id from public.live_sessions
+            where status = 'preparing' and coalesce(host_last_seen_at, created_at) < clock_timestamp() - interval '15 minutes' loop
+    update public.live_sessions set status = 'cancelled', ended_at = clock_timestamp(), viewers_count = 0 where id = r.id;
+    update public.live_participants set state = 'left', left_at = clock_timestamp() where live_id = r.id and state <> 'removed';
+    v_n := v_n + 1;
+  end loop;
+
+  update public.live_participants set state = 'left', left_at = clock_timestamp()
+   where state in ('watching', 'requested', 'invited') and last_seen_at < clock_timestamp() - interval '3 minutes';
+  update public.live_battles
+     set status = 'finished', finished_at = clock_timestamp(),
+         winner_id = case when host_score > opponent_score then host_id when opponent_score > host_score then opponent_id else null end
+   where status = 'active' and ends_at < clock_timestamp();
+  return v_n;
+end $$;
+

@@ -1,5 +1,5 @@
 import { type PropsWithChildren, type ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps, type StyleProp, type ViewStyle } from 'react-native';
+import { KeyboardAvoidingView, RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -77,13 +77,19 @@ export function Screen({
     <SafeAreaView edges={isDesktop ? [] : edges} style={[styles.flex, { backgroundColor: bg }, style]}>
       {header}
       {keyboardAvoiding ? (
-        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        // `padding` on both platforms: Android apps are edge-to-edge from Expo SDK 54, so the window
+        // no longer shrinks for the keyboard and a view without a behavior stays underneath it.
+        // The footer sits inside, otherwise a submit button or comment bar is left under the keyboard.
+        <KeyboardAvoidingView style={styles.flex} behavior="padding">
           {body}
+          {footer}
         </KeyboardAvoidingView>
       ) : (
-        body
+        <>
+          {body}
+          {footer}
+        </>
       )}
-      {footer}
     </SafeAreaView>
   );
 }

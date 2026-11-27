@@ -57,7 +57,9 @@ for (const route of ROUTES) {
         .filter((e) => { const s = getComputedStyle(e); return (s.overflowY === 'auto' || s.overflowY === 'scroll') && e.clientHeight > 120; })
         .sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0];
       const start = el.scrollTop;
-      el.scrollTop = start + 200;
+      // A paged feed snaps to whole pages, so a small nudge springs straight back. Move by a page.
+      const step = getComputedStyle(el).scrollSnapType.startsWith('none') ? 200 : el.clientHeight;
+      el.scrollTop = start + step;
       const moved = el.scrollTop !== start;
       el.scrollTop = start;
       return moved;

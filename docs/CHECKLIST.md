@@ -118,6 +118,8 @@ exercised end-to-end from the build sandbox (no device / camera / store, and the
   touch panning, page does not scroll behind the tab bar).
 - `node scripts/qa/keyboard-check.mjs` — 3/3 text fields stay above a simulated on-screen keyboard
   (the chat composer used to sit 328px behind it).
+- Native keyboard handling is covered by unit tests, not a device: there is no Android emulator in
+  the build environment, so the APK behaviour needs one install to confirm.
 - `node scripts/qa/webpush-selftest.mjs` — 9/9 checks on the Web Push implementation (VAPID signature,
   headers, and a payload that decrypts with an independent implementation of RFC 8291).
 - `npm run qa:e2e` (two real accounts in two browsers against the exported site): notifications bell, post → like →

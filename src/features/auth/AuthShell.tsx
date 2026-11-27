@@ -2,7 +2,7 @@ import { Ionicons } from '@/components/ui/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { type PropsWithChildren, type ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Logo } from '@/components/ui/Logo';
@@ -64,7 +64,7 @@ export function AuthShell({ title, subtitle, footer, back = true, children }: Au
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.root}>
+      <KeyboardAvoidingView behavior="padding" style={styles.root}>
         {isDesktop ? (
           <View style={styles.split}>
             <LinearGradient colors={['#1B0B3E', palette.purpleDeep, palette.night]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.brandPanel}>

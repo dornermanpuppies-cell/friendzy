@@ -22,6 +22,7 @@ import type { LiveComment, LiveGiftEvent, LiveSession, LiveSummary } from '@/typ
 import type { AuthorCard } from '@/types/social';
 import { getErrorMessage } from '@/utils/errors';
 import { formatCount, formatDate } from '@/utils/format';
+import { useKeyboardInset } from '@/hooks/useKeyboardInset';
 
 import { LiveChatInput, LiveChatList } from './LiveChat';
 import { FloatingHearts, LiveGiftOverlay } from './LiveGiftOverlay';
@@ -253,6 +254,10 @@ export function LiveRoom({ liveId }: { liveId: string }) {
   };
 
   const bottomInset = insets.bottom + spacing.md;
+  // The live chat box is positioned absolutely, so KeyboardAvoidingView cannot help it: lift it by
+  // the keyboard itself. Android is edge-to-edge, so the window will not do this for us.
+  const keyboardInset = useKeyboardInset();
+  const chatBottom = keyboardInset > 0 ? keyboardInset + spacing.md : bottomInset;
   const canModerate = Boolean(live && (live.is_host || live.is_moderator));
 
   // ---------------------------------------------------------------- states
@@ -530,7 +535,7 @@ export function LiveRoom({ liveId }: { liveId: string }) {
       </View>
 
       {/* Chat */}
-      <View style={[styles.chat, { bottom: bottomInset }]}>
+      <View style={[styles.chat, { bottom: chatBottom }]}>
         {live.pinned_comment ? (
           <View style={styles.pinned}>
             <Ionicons name="pin" size={12} color={palette.gold} />

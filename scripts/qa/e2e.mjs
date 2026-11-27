@@ -527,13 +527,18 @@ async function archiveScenario(alice, bob, conversationId) {
   await box.waitFor({ state: 'visible', timeout: 60_000 });
   await box.fill(`archived ping ${stamp}`);
   await bob.clickLabel('Send');
-  await sleep(2500);
+  // Wait for the message to exist rather than guessing: sealing and sending takes a moment, and a
+  // fixed sleep makes the unread count below a coin toss on a loaded machine.
+  await bob.waitForText(`archived ping ${stamp}`, 45_000);
+  const summary = await waitFor(async () => {
+    const s = await rpc(alice.session, 'get_archived_summary', {});
+    return (s?.unread_chats ?? 0) >= 1 ? s : null;
+  }, 20_000);
+  if (!summary) throw new Error(`the archived row never showed the unread chat: ${JSON.stringify(await rpc(alice.session, 'get_archived_summary', {}))}`);
+  if ((summary.chats ?? 0) < 1) throw new Error(`the archived row does not count the chat: ${JSON.stringify(summary)}`);
 
   const inbox = await rpc(alice.session, 'get_conversations', { p_filter: 'inbox', p_limit: 30, p_before: null });
   if ((inbox ?? []).some((c) => c.id === conversationId)) throw new Error('a new message pulled the chat out of the archive while "keep chats archived" was on');
-  const summary = await rpc(alice.session, 'get_archived_summary', {});
-  if ((summary?.chats ?? 0) < 1) throw new Error(`the archived row does not count the chat: ${JSON.stringify(summary)}`);
-  if ((summary?.unread_chats ?? 0) < 1) throw new Error('the archived row shows no unread chat');
 
   // The inbox shows the single Archived row with that count.
   await alice.goto('/inbox');
@@ -579,8 +584,9 @@ async function wallpaperScenario(alice, bob, conversationId) {
   if (theft.ok) throw new Error('another account could download the wallpaper from the private bucket');
 
   await rpc(alice.session, 'set_conversation_settings', { p_conversation: conversationId, p_wallpaper: `img:${path}`, p_set_wallpaper: true });
-  const mine = await rpc(alice.session, 'get_conversation', { p_conversation: conversationId }).catch(() => null);
-  const stored = mine?.wallpaper ?? (await rpc(alice.session, 'get_conversations', { p_filter: 'inbox', p_limit: 30, p_before: null }) ?? []).find((c) => c.id === conversationId)?.wallpaper;
+  // Straight from the member row: a chat that happens to be archived is not in the inbox list.
+  const rows = await rest(alice.session, `conversation_members?conversation_id=eq.${conversationId}&user_id=eq.${alice.userId}&select=wallpaper`);
+  const stored = rows?.[0]?.wallpaper;
   if (stored !== `img:${path}`) throw new Error(`the photo wallpaper was not stored (got ${stored})`);
 
   // Alice's chat shows the photo; the gradient is gone.
